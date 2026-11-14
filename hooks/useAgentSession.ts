@@ -180,7 +180,7 @@ type ModelsResponse = {
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, onSessionRenamed,
-    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, resolveNewSessionCwd,
+    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, resolveNewSessionCwd, chatInputRef,
   } = opts;
 
   const isNew = session === null;
@@ -600,7 +600,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (request.title) document.title = request.title;
         break;
       case "set_editor_text":
-        opts.chatInputRef?.current?.insertText(request.text);
+        chatInputRef?.current?.insertText(request.text);
         break;
       case "custom":
         setExtensionCustomUi((current) => {
@@ -609,7 +609,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         });
         break;
     }
-  }, [addNotice, opts.chatInputRef]);
+  }, [addNotice, chatInputRef]);
 
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId?: number) => {
     // Bail out before loadSession too: a stale finish for a previous run
@@ -1024,13 +1024,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       console.error("Failed to execute shell command:", e);
       addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
-      opts.chatInputRef?.current?.insertIfEmpty(inputText);
+      chatInputRef?.current?.insertIfEmpty(inputText);
     } finally {
       bashRunningRef.current = false;
       setPendingBash(null);
       setBashRunning(false);
     }
-  }, [addNotice, ensureNewSession, loadSession, opts.chatInputRef, promoteNewSession, session]);
+  }, [addNotice, ensureNewSession, loadSession, chatInputRef, promoteNewSession, session]);
   executeBashRef.current = executeBash;
 
   const clearQueuedMessages = useCallback(async (restoreToInput: boolean) => {
@@ -1042,9 +1042,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setQueuedMessages({ steering: [], followUp: [] });
     if (restoreToInput) {
       const texts = [...(result?.steering ?? []), ...(result?.followUp ?? [])];
-      if (texts.length > 0) opts.chatInputRef?.current?.prependText(texts.join("\n\n"));
+      if (texts.length > 0) chatInputRef?.current?.prependText(texts.join("\n\n"));
     }
-  }, [opts.chatInputRef]);
+  }, [chatInputRef]);
 
   const handleAbort = useCallback(async () => {
     const sid = sessionIdRef.current;

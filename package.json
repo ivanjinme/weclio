@@ -54,24 +54,25 @@
     "@codemirror/language-data": "6.5.2",
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.14",
-    "@earendil-works/pi-agent-core": "1.4.0",
-    "@earendil-works/pi-ai": "1.4.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
-    "@earendil-works/pi-tui": "1.4.0",
+    "@earendil-works/pi-agent-core": "1.5.2",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@earendil-works/pi-tui": "1.5.2",
     "@lexical/react": "0.48.0",
     "@mdxeditor/editor": "4.3.2",
     "@weclio/plugins": "0.1.5",
     "codemirror": "6.0.2",
-    "electron-updater": "6.6.2",
+    "electron-updater": "6.8.11",
     "lexical": "0.48.0",
-    "next": "16.3.3",
+    "next": "16.4.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "undici": "8.10.0",
+    "undici": "8.12.4",
     "weclio-cli": "0.3.6"
   },
   "devDependencies": {
-    "@lobehub/icons": "^5.6.0",
+    "@lobehub/icons": "6.15.2",
+    "@lobehub/ui": "6.15.4",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25",
     "@types/react": "^19",
@@ -80,9 +81,9 @@
     "electron": "45.2.1",
     "electron-builder": "26.18.0",
     "eslint": "^9",
-    "eslint-config-next": "16.3.3",
+    "eslint-config-next": "16.4.6",
     "jiti": "^2.7.0",
-    "katex": "^0.16.47",
+    "katex": "0.19.1",
     "mammoth": "^1.12.0",
     "mermaid": "^11.14.0",
     "postcss": "^8",
@@ -95,5 +96,17 @@
     "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5"
+  },
+  "overrides": {
+    "katex": "$katex",
+    "app-builder-lib@26.18.0": {
+      "minimatch@10.2.6": "11.0.8"
+    },
+    "@electron/universal@2.0.3": {
+      "minimatch@9.0.9": "11.0.8"
+    },
+    "@typescript-eslint/typescript-estree@8.72.2": {
+      "minimatch@10.2.6": "11.0.8"
+    }
   }
 }

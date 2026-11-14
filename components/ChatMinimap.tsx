@@ -54,7 +54,7 @@ interface NodeInfo {
   index: number;
 }
 
-export function ChatMinimap({ messages, streamingMessage, scrollContainer, messageRefs }: Props) {
+export function ChatMinimap({ messages, streamingMessage, scrollContainer: scrollContainerRef, messageRefs }: Props) {
   const [scrollRatio, setScrollRatio] = useState(0);
   const [viewportRatio, setViewportRatio] = useState(1);
   const [visible, setVisible] = useState(false);
@@ -73,7 +73,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
 
   // --- 仅更新视口比例，不读取 DOM ---
   const updateScroll = useCallback(() => {
-    const scrollEl = scrollContainer.current;
+    const scrollEl = scrollContainerRef.current;
     if (!scrollEl) return;
     const totalH = scrollEl.scrollHeight;
     const clientH = scrollEl.clientHeight;
@@ -86,7 +86,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       setScrollRatio(scrollEl.scrollTop / scrollable);
       setViewportRatio(clientH / totalH);
     }
-  }, [scrollContainer]);
+  }, [scrollContainerRef]);
 
   // --- 节流 DOM 测量（仅消息变化/尺寸变化时触发，最多 150ms 一次）---
   const measureThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,7 +95,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     if (measureThrottleRef.current) return;
     measureThrottleRef.current = setTimeout(() => {
       measureThrottleRef.current = null;
-      const scrollEl = scrollContainer.current;
+      const scrollEl = scrollContainerRef.current;
       if (!scrollEl) return;
       const totalH = scrollEl.scrollHeight;
       if (totalH <= 0) return;
@@ -124,19 +124,19 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       }
       setNodes(newNodes);
     }, 150);
-  }, [scrollContainer, messageRefs]);
+  }, [scrollContainerRef, messageRefs]);
 
   // scroll 事件 → 只更新视口，不碰 DOM
   useEffect(() => {
-    const el = scrollContainer.current;
+    const el = scrollContainerRef.current;
     if (!el) return;
     el.addEventListener("scroll", updateScroll, { passive: true });
     return () => el.removeEventListener("scroll", updateScroll);
-  }, [scrollContainer, updateScroll]);
+  }, [scrollContainerRef, updateScroll]);
 
   // Keep both node positions and viewport ratios in sync with layout changes.
   useEffect(() => {
-    const el = scrollContainer.current;
+    const el = scrollContainerRef.current;
     if (!el) return;
     const syncLayout = () => {
       updateScroll();
@@ -154,7 +154,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         measureThrottleRef.current = null;
       }
     };
-  }, [scrollContainer, measureNodes, updateScroll]);
+  }, [scrollContainerRef, measureNodes, updateScroll]);
 
   // Wait briefly for new message DOM before syncing layout.
   useEffect(() => {
@@ -166,13 +166,13 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   }, [messages.length, measureNodes, updateScroll]);
 
   const scrollToMinimapRatio = useCallback((viewportTopRatio: number) => {
-    const el = scrollContainer.current;
+    const el = scrollContainerRef.current;
     if (!el) return;
     const scrollable = el.scrollHeight - el.clientHeight;
     if (scrollable <= 0) return;
     const clamped = Math.max(0, Math.min(1 - viewportRatio, viewportTopRatio));
     el.scrollTop = (clamped / (1 - viewportRatio)) * scrollable;
-  }, [scrollContainer, viewportRatio]);
+  }, [scrollContainerRef, viewportRatio]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;

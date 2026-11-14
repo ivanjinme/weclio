@@ -340,7 +340,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } finally {
       pendingImageCountRef.current -= imageFiles.length;
     }
-  }, [isStreaming]);
+  }, [isStreaming, setAttachedImages]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -349,14 +349,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (removed) revokeImagePreview(removed);
       return next;
     });
-  }, []);
+  }, [setAttachedImages]);
 
   const clearImages = useCallback(() => {
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview);
       return [];
     });
-  }, []);
+  }, [setAttachedImages]);
 
   const resetInput = useCallback(() => {
     setParts([]);
@@ -374,7 +374,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const detachInput = useCallback(() => {
     resetInput();
     setAttachedImages([]);
-  }, [resetInput]);
+  }, [resetInput, setAttachedImages]);
 
   const restoreInput = useCallback((submitted: ComposerPart[], images: AttachedImage[]) => {
     setParts((current) => {
@@ -388,7 +388,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return combined.slice(0, MAX_ATTACHED_IMAGES);
     });
     requestAnimationFrame(() => editorRef.current?.focus());
-  }, []);
+  }, [setAttachedImages]);
 
   const focusComposer = useCallback(() => {
     editorRef.current?.focus(composerText(partsRef.current).length);
@@ -481,10 +481,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [parts, skillParts, attachedImages, isStreaming, sendSubmitting, onBuiltinCommand, onSend, detachInput, restoreInput, onAudioUnlock]);
 
-  const slashToken = cursor < 0 ? null : extractSlashToken(completionText(parts), cursor);
+  const slashToken = React.useMemo(() => (
+    cursor < 0 ? null : extractSlashToken(completionText(parts), cursor)
+  ), [parts, cursor]);
   const slashQuery = slashToken?.query ?? null;
 
-  const filteredSlashCommands = (() => {
+  const filteredSlashCommands = React.useMemo(() => {
     if (slashQuery === null) return [];
     const builtinCommands = isStreaming
       ? []
@@ -502,7 +504,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return SLASH_SOURCE_ORDER[a.source] - SLASH_SOURCE_ORDER[b.source]
           || COMMAND_COLLATOR.compare(a.name, b.name);
       });
-  })();
+  }, [slashQuery, isStreaming, canCompact, isCompacting, slashCommands, t]);
 
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
@@ -554,7 +556,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return;
     }
     setAtQuery(extractAtQuery(text.slice(0, cursor)));
-  }, [cwd]);
+  }, [cwd, setCursor]);
 
   const atQueryText = atQuery?.query ?? null;
   const atLocalMatches: FileIndexEntry[] = React.useMemo(() => (
