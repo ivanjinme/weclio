@@ -5,6 +5,7 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { beginDesktopTask } from "./desktop-update-gate";
+import { extensionReloadBlockReason, shouldRefuseDirectReload } from "./reload-guard";
 import type { ComposerPart } from "./composer";
 import { expandSkillParts } from "./skill-input";
 import { invalidateModelsCache } from "./models-cache";
@@ -711,11 +712,11 @@ export class AgentSessionWrapper {
 
       case "reload": {
         // A live turn still holds extension context; do not invalidate it.
-        if (this.isRunning() || this.manualCompactionRunning) {
+        if (shouldRefuseDirectReload(this.isRunning(), this.manualCompactionRunning)) {
           throw new Error("Wait for the current response to finish before reloading.");
         }
         await this.waitForExtensionsBound();
-        if (this.isRunning() || this.manualCompactionRunning) {
+        if (shouldRefuseDirectReload(this.isRunning(), this.manualCompactionRunning)) {
           throw new Error("Wait for the current response to finish before reloading.");
         }
         this.extensionStatuses.clear();
@@ -1163,11 +1164,11 @@ export class AgentSessionWrapper {
       reload: async () => {
         // Extension commands execute inside their own prompts. Guard only
         // active generation or compaction, not the invoking command itself.
-        const busy = this.inner.isStreaming
-          ? "Wait for the current response to finish before reloading."
-          : this.inner.isCompacting || this.manualCompactionRunning
-            ? "Wait for compaction to finish before reloading."
-            : null;
+        const busy = extensionReloadBlockReason(
+          this.inner.isStreaming,
+          this.inner.isCompacting,
+          this.manualCompactionRunning,
+        );
         if (busy) {
           this.emit({
             type: "extension_ui_request",
