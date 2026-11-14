@@ -37,12 +37,30 @@ function findNpxCli(): string | null {
 export interface RunNpxOptions {
   timeout?: number;
   cwd?: string;
-  env?: NodeJS.ProcessEnv;
 }
 
 export interface RunNpxResult {
   stdout: string;
   stderr: string;
+}
+
+/** Keep project package commands free from server-only process settings.
+ * This is not a general secret scrubber: npm registry credentials, proxies and
+ * user-supplied tokens are preserved for legitimate package installs.
+ */
+export function npxEnvironment(
+  base: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  for (const name of Object.keys(env)) {
+    const key = platform === "win32" ? name.toUpperCase() : name;
+    if (key === "PORT" || key === "NODE_ENV" || key === "PI_WEB_PASSWORD"
+      || key.startsWith("NEXT_") || key === "FORCE_COLOR") {
+      delete env[name];
+    }
+  }
+  return { ...env, FORCE_COLOR: "0" };
 }
 
 /**
@@ -57,6 +75,6 @@ export async function runNpx(args: string[], opts: RunNpxOptions = {}): Promise<
   return execFileAsync(command, commandArgs, {
     timeout: opts.timeout,
     cwd: opts.cwd,
-    env: opts.env,
+    env: npxEnvironment(),
   });
 }

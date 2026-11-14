@@ -57,3 +57,27 @@ export function inspectUploadTargets(directory: string, fileNames: string[]): Up
 
   return { conflicts, nonReplaceable };
 }
+
+/** Stage the complete replacement beside the destination before replacing it. */
+export function replaceUploadFile(destination: string, bytes: Buffer): void {
+  const original = fs.lstatSync(destination);
+  if (!original.isFile() || original.isSymbolicLink()) {
+    throw new Error("Cannot replace a directory or symbolic link");
+  }
+
+  // mkdtemp creates a private directory on the same filesystem as destination.
+  const stageDir = fs.mkdtempSync(path.join(path.dirname(destination), ".pi-upload-"));
+  const stagePath = path.join(stageDir, "upload");
+  try {
+    fs.writeFileSync(stagePath, bytes, { flag: "wx", mode: original.mode & 0o777 });
+    // umask may otherwise strip mode bits (notably executable bits).
+    fs.chmodSync(stagePath, original.mode & 0o777);
+    const current = fs.lstatSync(destination);
+    if (!current.isFile() || current.isSymbolicLink()) {
+      throw new Error("Cannot replace a directory or symbolic link");
+    }
+    fs.renameSync(stagePath, destination);
+  } finally {
+    fs.rmSync(stageDir, { recursive: true, force: true });
+  }
+}
