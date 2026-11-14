@@ -29,7 +29,7 @@ async function git(cwd: string, args: string[], maxBuffer = GIT_STATUS_MAX_BUFFE
 
 async function findRepositoryRoot(cwd: string): Promise<string | null> {
   try {
-    return (await git(cwd, ["rev-parse", "--show-toplevel"])).trim() || null;
+    return (await git(cwd, ["rev-parse", "--show-toplevel"])).replace(/\r?\n$/, "") || null;
   } catch {
     return null;
   }
@@ -62,6 +62,7 @@ async function readTrackedLineStats(
   const pathspec = relativeCwd || ".";
   try {
     const output = await git(repositoryRoot, [
+      "--literal-pathspecs",
       "diff",
       "--no-color",
       "--no-ext-diff",
@@ -172,6 +173,7 @@ async function createTrackedFilePatch(
     : [relativePath];
   try {
     return await git(repositoryRoot, [
+      "--literal-pathspecs",
       "diff",
       "--no-color",
       "--no-ext-diff",
