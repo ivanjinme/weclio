@@ -1,6 +1,7 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { createOAuthSseWriter } from "@/lib/oauth-sse";
 
 export const dynamic = "force-dynamic";
 
@@ -48,10 +49,7 @@ export async function GET(
 ) {
   const { provider } = await params;
 
-  const encoder = new TextEncoder();
-  const send = (controller: ReadableStreamDefaultController, data: unknown) => {
-    controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-  };
+  const { send, close, markClosed } = createOAuthSseWriter();
 
   // AbortController propagates client disconnect into ModelRuntime.login().
   const abort = new AbortController();
@@ -62,7 +60,7 @@ export async function GET(
       const modelRuntime = await ModelRuntime.create();
       if (!modelRuntime.getProvider(provider)?.auth.oauth) {
         send(controller, { type: "error", message: `Unknown provider: ${provider}` });
-        controller.close();
+        close(controller);
         return;
       }
 
@@ -174,10 +172,11 @@ export async function GET(
         }
       } finally {
         cleanup();
-        controller.close();
+        close(controller);
       }
     },
     cancel() {
+      markClosed();
       abort.abort();
     },
   });
