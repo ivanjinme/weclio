@@ -20,5 +20,4 @@ remain the source of truth for implementation details.
 
 ## Commands
 
-- Read `COMMANDS.md` for project execution, validation, and publishing.
-- Use project-local tools only; observe the documented build constraint.
+- Read `COMMANDS.md` before running checks, builds, or releases.
