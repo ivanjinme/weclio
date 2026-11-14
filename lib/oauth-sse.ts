@@ -11,7 +11,7 @@ export function createOAuthSseWriter() {
     send(controller: ReadableStreamDefaultController<Uint8Array>, data: unknown): void {
       if (closed) return;
       try {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\\n\\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       } catch {
         closed = true;
       }
