@@ -1,4 +1,9 @@
-import type { SessionEntry } from "./types";
+import type { SessionEntry, ToolResultMessage } from "./types";
+
+// Only locally executed coding tools can authorize paths from their result text.
+// Remote MCP and extension results can contain attacker-controlled strings.
+const CODING_TOOL_NAMES = new Set(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
+const CODEMODE_STORE_ENTRY_TYPE = "codemode-store";
 
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,10 +69,47 @@ function collectStrings(value: unknown, out: string[]): void {
   for (const item of Object.values(value)) collectStrings(item, out);
 }
 
+function recordField(value: unknown, key: string): unknown {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/** For untrusted tool results, recognize only framework-managed spill paths
+ * and arguments sent to actual nested coding tools, never arbitrary result text.
+ */
+function collectUntrustedToolResultStrings(message: ToolResultMessage, out: string[]): void {
+  const fullOutputPath = recordField(message.details, "fullOutputPath");
+  if (typeof fullOutputPath === "string") out.push(fullOutputPath);
+
+  const nestedCalls = recordField(recordField(message, "nestedCalls"), "calls");
+  if (!Array.isArray(nestedCalls)) return;
+  for (const call of nestedCalls) {
+    const name = recordField(call, "name");
+    if (typeof name === "string" && CODING_TOOL_NAMES.has(name)) {
+      collectStrings(recordField(call, "arguments"), out);
+    }
+  }
+}
+
+function collectEntryStrings(entry: SessionEntry, out: string[]): void {
+  if (entry.type === "custom" && entry.customType === CODEMODE_STORE_ENTRY_TYPE) return;
+  // A context edit can reintroduce external tool output into stored context.
+  if ((entry as { type: string }).type === "context_edit") return;
+  if (entry.type === "message") {
+    if (entry.message.role === "system") return;
+    if (entry.message.role === "toolResult" && !CODING_TOOL_NAMES.has(entry.message.toolName ?? "")) {
+      collectUntrustedToolResultStrings(entry.message, out);
+      return;
+    }
+  }
+  collectStrings(entry, out);
+}
+
 export function isFilePathReferencedByEntries(filePath: string, entries: SessionEntry[]): boolean {
   for (const entry of entries) {
     const strings: string[] = [];
-    collectStrings(entry, strings);
+    collectEntryStrings(entry, strings);
     if (strings.some((text) => containsExactPathReference(text, filePath))) return true;
   }
   return false;
