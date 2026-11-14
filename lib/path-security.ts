@@ -22,6 +22,15 @@ export function isPathWithinRoots(target: string, roots: Set<string>): boolean {
   return false;
 }
 
+/** Detect literal parent traversal segments before path normalization or realpath. */
+export function hasParentDirectorySegment(target: string): boolean {
+  // On Windows both slash styles delimit path segments; on POSIX a
+  // backslash is a valid filename character and must not be normalized.
+  const windowsPath = process.platform === "win32" || isWindowsAbsolutePath(target);
+  const segments = windowsPath ? target.replaceAll("\\", "/").split("/") : target.split("/");
+  return segments.includes("..");
+}
+
 export function isExistingPathWithinRoots(target: string, roots: Set<string>): boolean {
   let realTarget: string;
   try {

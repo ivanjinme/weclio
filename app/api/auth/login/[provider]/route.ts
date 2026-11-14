@@ -2,6 +2,7 @@ import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { createOAuthSseWriter } from "@/lib/oauth-sse";
+import { createManualLoginToken } from "@/lib/oauth-login-token";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export async function POST(
   if (!callbacks) {
     return Response.json({ error: "No pending login for token" }, { status: 404 });
   }
-  // Verify token belongs to this provider (token format: "<provider>-<ts>-<random>")
+  // Verify token belongs to this provider (token format: "<provider>-<uuid>")
   if (!token.startsWith(`${provider}-`)) {
     return Response.json({ error: "Token does not match provider" }, { status: 400 });
   }
@@ -69,7 +70,7 @@ export async function GET(
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
 
       const createClientInputRequest = () => {
-        const token = `${provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const token = createManualLoginToken(provider);
         activeTokens.add(token);
 
         const promise = new Promise<string>((resolve, reject) => {
