@@ -27,7 +27,7 @@ export function hasParentDirectorySegment(target: string): boolean {
   // On Windows both slash styles delimit path segments; on POSIX a
   // backslash is a valid filename character and must not be normalized.
   const windowsPath = process.platform === "win32" || isWindowsAbsolutePath(target);
-  const segments = windowsPath ? target.replaceAll("\\\\", "/").split("/") : target.split("/");
+  const segments = windowsPath ? target.replaceAll("\\", "/").split("/") : target.split("/");
   return segments.includes("..");
 }
 
