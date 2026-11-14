@@ -57,7 +57,7 @@ next-env.d.ts
 # 本地续作笔记，不入库
 docs/desktop-update-handoff.md
 
-/public/
-
 # 本地性能验证脚本，不入库
 /scripts/
+
+/test-logs/

@@ -5,8 +5,9 @@ Repo root · Bash / Git Bash · stop on failure.
 ## Development
 
 ```bash
-npm run dev
-npm run dev:web
+npm run dev           # Desktop (default)
+npm run dev:desktop   # Desktop
+npm run dev:web       # Web
 ```
 
 ## Checks

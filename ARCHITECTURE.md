@@ -1,27 +1,38 @@
-# Architecture
 
-Architecture boundaries and code entrypoints. Implementation details live in code/tests.
+## System Architecture
 
-## System & Ownership
-
-Target architecture. Code dependencies, not process layout:
 
 ```text
- Web UI                              Desktop UI
-   │ HTTP / SSE                         │ preload / IPC
-   ▼                                    ▼
- Next.js host                       Electron Main
-   │                                    │
-   └──────────────┐     ┌───────────────┘
-                  ▼     ▼
-        Shared Application Services
-        Agent / Sessions / Files / Auth / Trust
-                     │
-                     ▼
-                   Pi SDK
+
+    Desktop (Electron + React)           Web (React)
+                │                             │
+                └─────────────┬───────────────┘
+                              │ HTTP ↓ / SSE ↑
+                              │
+    ┌─────────────────────────┼────────────────────────┐
+    │ Runtime Environment     │                        │
+    │ (Local / VM /Sandbox)   ▼                        │
+    │                ┌───────────────────────────┐     │
+    │                │ Agent Service             │     │
+    │                │                           │     │
+    │                │ ├── HTTP API / SSE         │     │
+    │                │ └── Pi SDK (in-process)    │     │
+    │                │     ├── AgentSessions      │     │
+    │                │     ├── Extensions         │     │
+    │                │     └── Tools              │     │
+    │                │         (read/write/edit/  │     │
+    │                │          bash)            │     │
+    │                └───────────────────────────┘     │
+    └──────────────────────────────────────────────────┘
+
+Deployment:
+  Local  → Agent Service on user's machine
+  Remote → Dedicated VM / container / sandbox per user
+  Scale  → Multiple isolated runtime environments,
+           each with its own Agent Service
 ```
 
-- Shared services have no Next.js/Electron dependencies; each host instantiates them independently.
+- Shared services have no Next.js/Electron dependencies.
 - Hosts own transport and lifecycle; shared services own business logic.
 - Pi owns agent execution, session persistence/tree semantics, and model-context construction. Do not reimplement them.
 
