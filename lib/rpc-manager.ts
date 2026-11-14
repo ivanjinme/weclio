@@ -5,6 +5,7 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
 import { beginDesktopTask } from "./desktop-update-gate";
+import { extensionReloadBlockReason, shouldRefuseDirectReload } from "./reload-guard";
 import type { ComposerPart } from "./composer";
 import { expandSkillParts } from "./skill-input";
 import { invalidateModelsCache } from "./models-cache";
@@ -710,7 +711,14 @@ export class AgentSessionWrapper {
       }
 
       case "reload": {
+        // A live turn still holds extension context; do not invalidate it.
+        if (shouldRefuseDirectReload(this.isRunning(), this.manualCompactionRunning)) {
+          throw new Error("Wait for the current response to finish before reloading.");
+        }
         await this.waitForExtensionsBound();
+        if (shouldRefuseDirectReload(this.isRunning(), this.manualCompactionRunning)) {
+          throw new Error("Wait for the current response to finish before reloading.");
+        }
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
         this.syncProjectTrust();
@@ -1154,6 +1162,23 @@ export class AgentSessionWrapper {
       },
       switchSession: async () => ({ cancelled: true }),
       reload: async () => {
+        // Extension commands execute inside their own prompts. Guard only
+        // active generation or compaction, not the invoking command itself.
+        const busy = extensionReloadBlockReason(
+          this.inner.isStreaming,
+          this.inner.isCompacting,
+          this.manualCompactionRunning,
+        );
+        if (busy) {
+          this.emit({
+            type: "extension_ui_request",
+            id: randomUUID(),
+            method: "notify",
+            notifyType: "warning",
+            message: busy,
+          } as ExtensionUiRequest as AgentEvent);
+          return;
+        }
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
         this.syncProjectTrust();
