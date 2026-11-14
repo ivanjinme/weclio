@@ -68,6 +68,9 @@ export function configureHttpDispatcher(
   const dispatcher = withUndiciErrorListener(
     new undici.EnvHttpProxyAgent({
       allowH2: false,
+      // Use CONNECT for http:// origins as well, so custom idle timeouts
+      // apply to proxied response bodies rather than undici's default.
+      proxyTunnel: true,
       bodyTimeout: normalizedTimeoutMs,
       headersTimeout: normalizedTimeoutMs,
       clientFactory: createUndiciClient,
