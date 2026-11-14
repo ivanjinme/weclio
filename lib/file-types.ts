@@ -43,15 +43,18 @@ export function getFileExt(filePath: string): string {
 }
 
 export function getImageMime(filePath: string): string | null {
-  return IMAGE_EXT_TO_MIME[getFileExt(filePath)] ?? null;
+  const ext = getFileExt(filePath);
+  return Object.hasOwn(IMAGE_EXT_TO_MIME, ext) ? IMAGE_EXT_TO_MIME[ext] : null;
 }
 
 export function getAudioMime(filePath: string): string | null {
-  return AUDIO_EXT_TO_MIME[getFileExt(filePath)] ?? null;
+  const ext = getFileExt(filePath);
+  return Object.hasOwn(AUDIO_EXT_TO_MIME, ext) ? AUDIO_EXT_TO_MIME[ext] : null;
 }
 
 export function getDocumentMime(filePath: string): string | null {
-  return DOCUMENT_EXT_TO_MIME[getFileExt(filePath) as DocumentPreviewKind] ?? null;
+  const ext = getFileExt(filePath) as DocumentPreviewKind;
+  return Object.hasOwn(DOCUMENT_EXT_TO_MIME, ext) ? DOCUMENT_EXT_TO_MIME[ext] : null;
 }
 
 export function documentPreviewKind(filePath: string): DocumentPreviewKind | null {
