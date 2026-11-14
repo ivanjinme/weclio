@@ -174,7 +174,6 @@ async function createTrackedFilePatch(
   try {
     return await git(repositoryRoot, [
       "--literal-pathspecs",
-      "--literal-pathspecs",
       "diff",
       "--no-color",
       "--no-ext-diff",
