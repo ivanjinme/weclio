@@ -1,6 +1,7 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { createOAuthLoginOptions } from "@/lib/oauth-login-options";
 import { createOAuthSseWriter } from "@/lib/oauth-sse";
 import { createManualLoginToken } from "@/lib/oauth-login-token";
 
@@ -115,6 +116,7 @@ export async function GET(
       // Also cancel on client disconnect
       abort.signal.addEventListener("abort", cleanup);
 
+      const loginOptions = createOAuthLoginOptions();
       try {
         await modelRuntime.login(provider, "oauth", {
           prompt: async (prompt: AuthPrompt) => {
@@ -160,7 +162,7 @@ export async function GET(
             }
           },
           signal: abort.signal,
-        });
+        }, loginOptions.options);
 
         invalidateModelsCache();
         send(controller, { type: "success" });
@@ -173,7 +175,11 @@ export async function GET(
         }
       } finally {
         cleanup();
-        close(controller);
+        try {
+          await loginOptions.flush();
+        } finally {
+          close(controller);
+        }
       }
     },
     cancel() {
