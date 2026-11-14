@@ -36,21 +36,31 @@ export function writeModelsJsonFile(filePath: string, data: unknown): void {
   const parent = path.dirname(filePath);
   fs.mkdirSync(parent, { recursive: true });
 
-  // Fail closed when an existing file is corrupt or points through a symlink.
-  // A failed or interrupted save must never erase the last valid config.
+  // A dotfiles-managed models.json may be a symlink. Atomic rename over
+  // that link would destroy it, so stage beside the resolved target instead.
+  // A dangling link must not be silently converted into a regular file.
+  let writePath = filePath;
   let originalMode = 0o600;
   try {
-    const stat = fs.lstatSync(filePath);
-    if (!stat.isFile() || stat.isSymbolicLink()) {
+    const entry = fs.lstatSync(filePath);
+    if (entry.isSymbolicLink()) {
+      try {
+        writePath = fs.realpathSync(filePath);
+      } catch {
+        throw new Error("Cannot overwrite a dangling models.json symbolic link");
+      }
+    }
+    const stat = fs.lstatSync(writePath);
+    if (!stat.isFile()) {
       throw new Error("Cannot replace models.json unless it is a regular file");
     }
-    readModelsJsonFile(filePath);
+    readModelsJsonFile(writePath);
     originalMode = stat.mode & 0o777;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
-  const tempDir = fs.mkdtempSync(path.join(parent, ".weclio-models-"));
+  const tempDir = fs.mkdtempSync(path.join(path.dirname(writePath), ".weclio-models-"));
   const tempFile = path.join(tempDir, "models.json");
   try {
     const fd = fs.openSync(tempFile, "wx", originalMode);
@@ -61,7 +71,7 @@ export function writeModelsJsonFile(filePath: string, data: unknown): void {
       fs.closeSync(fd);
     }
     fs.chmodSync(tempFile, originalMode);
-    fs.renameSync(tempFile, filePath);
+    fs.renameSync(tempFile, writePath);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
