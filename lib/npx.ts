@@ -52,12 +52,13 @@ export function npxEnvironment(
   base: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [name, value] of Object.entries(base)) {
+  const env: NodeJS.ProcessEnv = { ...base };
+  for (const name of Object.keys(env)) {
     const key = platform === "win32" ? name.toUpperCase() : name;
     if (key === "PORT" || key === "NODE_ENV" || key === "PI_WEB_PASSWORD"
-      || key.startsWith("NEXT_") || key === "FORCE_COLOR") continue;
-    env[name] = value;
+      || key.startsWith("NEXT_") || key === "FORCE_COLOR") {
+      delete env[name];
+    }
   }
   return { ...env, FORCE_COLOR: "0" };
 }
