@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { homedir } from "os";
+import { getHomeDirectory } from "@/lib/agent/workspace-service";
 
 export async function GET() {
-  return NextResponse.json({ home: homedir() });
+  return NextResponse.json({ home: getHomeDirectory() });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getRpcSession } from "@/lib/rpc-manager";
-import { resolveSessionPath } from "@/lib/session-reader";
+import { AgentProtocolError, isAgentProtocolErrorCode } from "@/lib/agent/protocol/validate";
+import { readSessionRuntimeState } from "@/lib/agent/session-service";
+import { getDefaultRuntime } from "@/lib/rpc-manager";
 
 export async function GET(
   _req: Request,
@@ -8,16 +9,10 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    if (!await resolveSessionPath(id)) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-
-    const rpc = getRpcSession(id);
-    if (!rpc?.isAlive()) return NextResponse.json({ running: false });
-
-    const state = await rpc.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    return NextResponse.json(await readSessionRuntimeState(id, getDefaultRuntime()));
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    const code = error instanceof AgentProtocolError && isAgentProtocolErrorCode(error.code) ? error.code : "command_failed";
+    const status = code === "session_not_found" ? 404 : code === "invalid_argument" ? 400 : 500;
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error), code }, { status });
   }
 }

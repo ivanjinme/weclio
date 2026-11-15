@@ -18,7 +18,7 @@ const jiti = createJiti(import.meta.url, { virtualModules });
 const { SessionManager } = await jiti.import("@earendil-works/pi-coding-agent");
 const runtime = await jiti.import("../../../lib/rpc-manager.ts");
 virtualModules["@/lib/rpc-manager"] = runtime;
-const { AgentSessionWrapper } = runtime;
+const { AgentSessionWrapper, getDefaultRuntime } = runtime;
 const { POST } = await jiti.import("./[id]/auto-name/route.ts");
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -34,10 +34,8 @@ function fixture(t, overrides = {}) {
     ...overrides,
   };
   const session = new AgentSessionWrapper(inner, { bash: true, powershell: false });
-  globalThis.__piSessions ??= new Map();
-  globalThis.__piSessions.set("auto-name", session);
+  getDefaultRuntime().attachSession(session);
   t.after(async () => {
-    globalThis.__piSessions.delete("auto-name");
     await session.shutdown();
   });
   const request = () => POST(new Request("http://localhost"), { params: Promise.resolve({ id: "auto-name" }) });
@@ -90,15 +88,4 @@ test("auto-name preserves generation failures without renaming", async (t) => {
   assert.deepEqual(await result.json(), { error: "provider failed" });
   assert.deepEqual(names, []);
   assert.equal(invalidations, 0);
-});
-
-test("auto-name still accepts pre-readiness wrappers retained by hot reload", async (t) => {
-  const { inner, names, request } = fixture(t);
-  globalThis.__piSessions.set("auto-name", { inner, isAlive: () => true });
-  generateTitle = async () => ({ title: "Existing session" });
-  const result = await request();
-  assert.equal(result.status, 200);
-  assert.deepEqual(await result.json(), { title: "Existing session", usage: null });
-  assert.deepEqual(names, ["Existing session"]);
-  assert.equal(invalidations, 1);
 });

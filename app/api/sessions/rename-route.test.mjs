@@ -2,60 +2,63 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createJiti } from "jiti";
 
-let live;
-let appended;
-let invalidations;
+// 业务在 session-service；本测试验证路由参数解析与错误映射。
+const calls = [];
+let failure;
+const bareJiti = createJiti(import.meta.url);
+const validateModule = await bareJiti.import("../../../lib/agent/protocol/validate.ts");
 const jiti = createJiti(import.meta.url, {
   virtualModules: {
-    "@earendil-works/pi-coding-agent": {
-      SessionManager: { open: () => ({ appendSessionInfo: (name) => appended.push(name) }) },
+    "@/lib/agent/protocol/validate": validateModule,
+    "@/lib/rpc-manager": { getDefaultRuntime: () => "runtime" },
+    "@/lib/agent/session-service": {
+      readSessionView: async (id, options) => {
+        if (failure) throw failure;
+        calls.push(["view", id, options]);
+        return { sessionId: id, tree: [], context: { messages: [] } };
+      },
+      renameSession: async (id, name, runtime) => {
+        if (failure) throw failure;
+        calls.push(["rename", id, name, runtime]);
+      },
     },
-    "@/lib/session-reader": {
-      resolveSessionPath: async () => "session.jsonl",
-      invalidateSessionListCache: () => invalidations++,
-    },
-    "@/lib/rpc-manager": { getRpcSession: () => live },
-    "@/lib/sidebar-pins": { setSidebarPin() {} },
-    "@/lib/session-path": { sessionPathKey: (path) => path },
   },
 });
-const { PATCH } = await jiti.import("./[id]/route.ts");
-const { AgentSessionWrapper } = await createJiti(import.meta.url).import("../../../lib/rpc-manager.ts");
-const request = (name) => PATCH(new Request("http://localhost/api/sessions/id", {
-  method: "PATCH", body: JSON.stringify({ name }),
-}), { params: Promise.resolve({ id: "id" }) });
+const { AgentProtocolError } = validateModule;
+const { GET, PATCH } = await jiti.import("./[id]/route.ts");
 
-test("manual rename goes through the live manager so pending auto-naming observes it", async () => {
-  appended = [];
-  invalidations = 0;
-  const commands = [];
-  live = { isAlive: () => true, send: async (command) => commands.push(command) };
-  assert.equal((await request(" Manual ")).status, 200);
-  assert.deepEqual(commands, [{ type: "set_session_name", name: "Manual" }]);
-  assert.deepEqual(appended, []);
+const params = { params: Promise.resolve({ id: "id" }) };
+const get = (query = "") => GET(new Request(`http://localhost/api/sessions/id${query}`), params);
+const patch = (body) => PATCH(new Request("http://localhost/api/sessions/id", { method: "PATCH", body: JSON.stringify(body) }), params);
+
+test("GET forwards the deferred-render flags to the service", async () => {
+  calls.length = 0;
+  failure = undefined;
+  const response = await get("?deferThinking&deferMedia");
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, [["view", "id", { deferThinking: true, deferToolResultImages: true }]]);
 });
 
-test("live PATCH clears empty and whitespace names through the real wrapper", async (t) => {
-  const entries = [];
-  live = new AgentSessionWrapper({
-    sessionId: "id",
-    sessionManager: { getEntries: () => entries },
-    setSessionName: (name) => entries.push({ type: "session_info", name }),
-    extensionRunner: { async emit() {} },
-    dispose() {},
-  }, { bash: true, powershell: false });
-  t.after(() => live.shutdown());
-  for (const name of ["", "   "]) {
-    assert.equal((await request(name)).status, 200);
+test("PATCH requires a string name and delegates the rename", async () => {
+  calls.length = 0;
+  failure = undefined;
+  assert.equal((await patch({})).status, 400);
+  assert.deepEqual(calls, []);
+  assert.equal((await patch({ name: "Manual" })).status, 200);
+  assert.deepEqual(calls, [["rename", "id", "Manual", "runtime"]]);
+});
+
+test("unknown sessions map to 404 and unexpected failures to 500", async () => {
+  failure = new AgentProtocolError("session_not_found", "Session not found: id");
+  try {
+    assert.equal((await get()).status, 404);
+  } finally {
+    failure = undefined;
   }
-  assert.deepEqual(entries, [{ type: "session_info", name: "" }, { type: "session_info", name: "" }]);
-});
-
-test("inactive session rename appends metadata and invalidates the catalog", async () => {
-  live = undefined;
-  appended = [];
-  invalidations = 0;
-  assert.equal((await request("")).status, 200);
-  assert.deepEqual(appended, [""]);
-  assert.equal(invalidations, 1);
+  failure = new Error("boom");
+  try {
+    assert.equal((await get()).status, 500);
+  } finally {
+    failure = undefined;
+  }
 });

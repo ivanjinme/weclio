@@ -1,7 +1,7 @@
-import { mkdirSync } from "fs";
 import { NextResponse } from "next/server";
 import { getDefaultWorkspacePath } from "@/lib/default-workspace";
-import { allowFileRoot } from "@/lib/file-access";
+import { ensureWorkspace } from "@/lib/agent/workspace-service";
+import { protocolErrorResponse } from "@/lib/agent/next-error-response";
 
 export async function GET() {
   return NextResponse.json({ cwd: getDefaultWorkspacePath() });
@@ -11,11 +11,8 @@ export async function GET() {
 // home-directory enumeration: output tracing must never discover user files.
 export async function POST() {
   try {
-    const cwd = getDefaultWorkspacePath();
-    mkdirSync(cwd, { recursive: true });
-    allowFileRoot(cwd);
-    return NextResponse.json({ cwd });
+    return NextResponse.json({ cwd: ensureWorkspace(getDefaultWorkspacePath()) });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return protocolErrorResponse(error);
   }
 }
