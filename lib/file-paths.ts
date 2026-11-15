@@ -6,11 +6,14 @@ export function normalizeFilePathSlashes(filePath: string): string {
 }
 
 export function encodeFilePathForApi(filePath: string): string {
-  return normalizeFilePathSlashes(filePath)
-    .split("/")
-    .filter(Boolean)
-    .map(encodeURIComponent)
-    .join("/");
+  const normalized = normalizeFilePathSlashes(filePath);
+  const segments = normalized.split("/").filter(Boolean);
+  // Preserve the UNC root as part of the first segment. URL routing would
+  // otherwise normalize the leading double slash away.
+  if (normalized.startsWith("//") && segments.length > 0) {
+    segments[0] = `//${segments[0]}`;
+  }
+  return segments.map(encodeURIComponent).join("/");
 }
 
 export function getFileName(filePath: string): string {
