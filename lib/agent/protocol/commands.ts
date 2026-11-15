@@ -1,12 +1,18 @@
-import type { ComposerPart } from "../../composer";
-import type { ToolEntry, ToolPreset } from "../../tool-presets";
-import type { ExtensionStatusItem, ExtensionUiResponse, ExtensionWidgetItem } from "../../types";
+import type {
+  AgentState,
+  CompactCommandResult,
+  ComposerPart,
+  ExtensionStatusItem,
+  ExtensionUiResponse,
+  ExtensionWidgetItem,
+  QueuedMessages,
+  SlashCommandInfo,
+  ToolEntry,
+  ToolPreset,
+} from "./types";
+import type { AgentImage } from "./types";
 
-export interface AgentImage {
-  type: "image";
-  data: string;
-  mimeType: string;
-}
+export type { AgentImage, AgentState, CompactCommandResult, ComposerPart, ExtensionStatusItem, ExtensionUiResponse, ExtensionWidgetItem, QueuedMessages, SlashCommandInfo, ToolEntry, ToolPreset };
 
 export type AgentCommand =
   | { type: "prompt"; message: string; images?: AgentImage[]; parts?: ComposerPart[]; streamingBehavior?: "steer" | "followUp" }
@@ -34,50 +40,6 @@ export type AgentCommand =
   | ExtensionUiResponse
   | { type: "extension_ui_input"; id: string; data: string }
   | { type: "bash"; command: string; excludeFromContext?: boolean };
-
-export interface QueuedMessages {
-  steering: string[];
-  followUp: string[];
-}
-
-export interface AgentState {
-  sessionId: string;
-  sessionFile: string;
-  isStreaming: boolean;
-  isPromptRunning: boolean;
-  isBashRunning: boolean;
-  isCompacting: boolean;
-  autoCompactionEnabled: boolean;
-  autoRetryEnabled: boolean;
-  model?: { id: string; provider: string };
-  messageCount: number;
-  pendingMessageCount: number;
-  queuedMessages: QueuedMessages;
-  contextUsage: { percent: number | null; contextWindow: number; tokens: number | null } | null;
-  systemPrompt: string;
-  thinkingLevel: string;
-  extensionStatuses: ExtensionStatusItem[];
-  extensionWidgets: ExtensionWidgetItem[];
-}
-
-export interface SlashCommandInfo {
-  name: string;
-  description?: string;
-  source: "extension" | "prompt" | "skill";
-  sourceInfo?: {
-    path: string;
-    source: string;
-    scope: "user" | "project" | "temporary";
-    origin: "package" | "top-level";
-    baseDir?: string;
-  };
-}
-
-// 只声明客户端消费的压缩结果字段，不将 SDK 的持久化结构带进协议。
-export interface CompactCommandResult {
-  tokensBefore?: number;
-  estimatedTokensAfter?: number;
-}
 
 export interface AgentCommandResults {
   prompt: null;

@@ -1,11 +1,6 @@
-export interface ToolEntry {
-  name: string;
-  description: string;
-  active: boolean;
-  source: string;
-}
+import type { ToolEntry, ToolPreset } from "./agent/protocol/types";
 
-export type ToolPreset = "none" | "default" | "full";
+export type { ToolEntry, ToolPreset };
 
 export interface ShellAvailability {
   bash: boolean;

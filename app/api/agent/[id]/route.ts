@@ -1,38 +1,52 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { AgentProtocolError, parseAgentCommand, type AgentProtocolErrorCode } from "@/lib/agent/protocol/validate";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+
+const INVALID_CODES = new Set<AgentProtocolErrorCode>(["invalid_command", "invalid_argument"]);
+
+function errorResponse(status: number, code: AgentProtocolErrorCode, message: string, requestId: string) {
+  return NextResponse.json({ success: false, error: { code, message, requestId } }, { status });
+}
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestId = randomUUID();
   const { id } = await params;
 
   try {
-    const body = await req.json() as { type: string; [key: string]: unknown };
+    // 运行时校验：编译期类型不等于可信输入。
+    const command = parseAgentCommand(await req.json());
 
     // Fast path: already-running session
     const existing = getRpcSession(id);
     if (existing?.isAlive()) {
-      const result = await existing.send(body);
+      const result = await existing.send(command);
       return NextResponse.json({ success: true, data: result });
     }
 
     const filePath = await resolveSessionPath(id);
     if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      return errorResponse(404, "session_not_found", "Session not found", requestId);
     }
 
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
 
     const { session } = await startRpcSession(id, filePath, cwd);
-    const result = await session.send(body);
+    const result = await session.send(command);
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof AgentProtocolError) {
+      return errorResponse(INVALID_CODES.has(error.code) ? 400 : 500, error.code, message, error.requestId ?? requestId);
+    }
+    return errorResponse(500, "command_failed", message, requestId);
   }
 }
 

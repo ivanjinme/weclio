@@ -1,30 +1,111 @@
-// Client-side helper for POST /api/agent/[id].
-//
-// Every /api/agent/[id] route returns one of:
-//   { success: true, data: <result> }
-//   { error: string }              (non-2xx)
-//
-// Call sites previously repeated the same 5-line fetch block 13× in
-// hooks/useAgentSession.ts. This helper collapses that down to one line.
+// Agent Client：唯一客户端接缝。
+// 当前 transport 直连 Next 路由；接入独立 Service 时只改 endpoint/basePath，不改调用点。
 
 import type { AgentCommand, AgentCommandResult } from "./agent/protocol/commands";
+import { AgentProtocolError, isAgentProtocolErrorCode } from "./agent/protocol/validate";
 
-export async function sendAgentCommand<C extends AgentCommand>(
+export interface AgentClientOptions {
+  /** Service 源，例如 https://vm:8443；留空表示同源。 */
+  baseUrl?: string;
+  /** 路由前缀：当前是 /api，独立 Service 使用 /v1。 */
+  basePath?: string;
+  /** 每次请求前解析认证头，避免长期凭据进入 URL 或日志。 */
+  headers?: () => Record<string, string> | Promise<Record<string, string>>;
+  fetch?: typeof globalThis.fetch;
+  signal?: AbortSignal;
+}
+
+export interface AgentCommandOptions {
+  signal?: AbortSignal;
+}
+
+export interface AgentClient {
+  sendCommand<C extends AgentCommand>(
+    sessionId: string,
+    command: C,
+    options?: AgentCommandOptions,
+  ): Promise<AgentCommandResult<C>>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSuccessEnvelope(value: unknown): value is { success: true; data: unknown } {
+  return isRecord(value) && value.success === true;
+}
+
+async function readJson(response: Response): Promise<unknown> {
+  return response.json().catch(() => undefined);
+}
+
+function readRequestId(response: Response, envelope: unknown): string | undefined {
+  const header = response.headers.get("x-request-id");
+  if (header) return header;
+  if (!isRecord(envelope)) return undefined;
+  if (typeof envelope.requestId === "string") return envelope.requestId;
+  const error = envelope.error;
+  return isRecord(error) && typeof error.requestId === "string" ? error.requestId : undefined;
+}
+
+function readErrorPayload(envelope: unknown): { code?: unknown; message: string } | undefined {
+  if (!isRecord(envelope)) return undefined;
+  const error = envelope.error;
+  // 旧式 { error: "文本" } 只作为消息来源，不构成需要维护的第二套协议。
+  if (typeof error === "string") return { message: error };
+  if (isRecord(error) && typeof error.message === "string") {
+    return { code: error.code, message: error.message };
+  }
+  return undefined;
+}
+
+function toProtocolError(response: Response, envelope: unknown): AgentProtocolError {
+  const requestId = readRequestId(response, envelope);
+  const payload = readErrorPayload(envelope);
+  if (!payload) {
+    return new AgentProtocolError("http_error", `HTTP ${response.status}`, { requestId });
+  }
+  const code = isAgentProtocolErrorCode(payload.code) ? payload.code : "command_failed";
+  return new AgentProtocolError(code, payload.message, { requestId });
+}
+
+export function createAgentClient(options: AgentClientOptions = {}): AgentClient {
+  const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
+  const basePath = options.basePath ?? "/api";
+  const doFetch = options.fetch ?? ((...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args));
+
+  return {
+    async sendCommand(sessionId, command, commandOptions) {
+      const headers = { ...(await options.headers?.()), "Content-Type": "application/json" };
+      let response: Response;
+      try {
+        response = await doFetch(`${baseUrl}${basePath}/agent/${encodeURIComponent(sessionId)}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(command),
+          signal: commandOptions?.signal ?? options.signal,
+        });
+      } catch (cause) {
+        if (cause instanceof Error && cause.name === "AbortError") throw cause;
+        throw new AgentProtocolError("http_error", cause instanceof Error ? cause.message : String(cause), { cause });
+      }
+
+      const envelope = await readJson(response);
+      if (!response.ok || !isSuccessEnvelope(envelope)) throw toProtocolError(response, envelope);
+      if (!("data" in envelope)) {
+        throw new AgentProtocolError("invalid_response", "Response is missing data", { requestId: readRequestId(response, envelope) });
+      }
+      return envelope.data as AgentCommandResult<typeof command>;
+    },
+  };
+}
+
+export const defaultAgentClient = createAgentClient();
+
+export function sendAgentCommand<C extends AgentCommand>(
   sessionId: string,
   command: C,
+  options?: AgentCommandOptions,
 ): Promise<AgentCommandResult<C>> {
-  const res = await fetch(`/api/agent/${encodeURIComponent(sessionId)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(command),
-  });
-  const body = (await res.json().catch(() => ({}))) as {
-    success?: boolean;
-    data?: AgentCommandResult<C>;
-    error?: string;
-  };
-  if (!res.ok || body.error) {
-    throw new Error(body.error ?? `HTTP ${res.status}`);
-  }
-  return body.data as AgentCommandResult<C>;
+  return defaultAgentClient.sendCommand(sessionId, command, options);
 }

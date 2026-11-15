@@ -209,21 +209,8 @@ export type ExtensionUiRequest =
       closed?: boolean;
     };
 
-export type ExtensionUiResponse =
-  | { type: "extension_ui_response"; id: string; value: string }
-  | { type: "extension_ui_response"; id: string; confirmed: boolean }
-  | { type: "extension_ui_response"; id: string; cancelled: true };
-
-export interface ExtensionStatusItem {
-  key: string;
-  text: string;
-}
-
-export interface ExtensionWidgetItem {
-  key: string;
-  lines: string[];
-  placement: "aboveEditor" | "belowEditor";
-}
+// 扩展 UI 的线上 DTO 由协议定义；此处仅转出，避免两套形状。
+export type { ExtensionStatusItem, ExtensionUiResponse, ExtensionWidgetItem } from "./agent/protocol/types";
 
 export interface SessionMessageEntry extends SessionEntryBase {
   type: "message";

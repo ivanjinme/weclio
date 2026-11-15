@@ -1,9 +1,7 @@
 import { buildAtMentionText } from "./file-fuzzy";
+import type { ComposerPart } from "./agent/protocol/types";
 
-export type ComposerPart =
-  | { type: "text"; text: string }
-  | { type: "skill"; name: string }
-  | { type: "file"; path: string };
+export type { ComposerPart };
 
 export function textParts(text: string): ComposerPart[] {
   return text ? [{ type: "text", text }] : [];
