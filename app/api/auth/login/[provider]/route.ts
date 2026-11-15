@@ -1,6 +1,7 @@
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "@/lib/models-cache";
+import { createOAuthLoginOptions } from "@/lib/oauth-login-options";
 import { createOAuthSseWriter } from "@/lib/oauth-sse";
 import { createManualLoginToken } from "@/lib/oauth-login-token";
 
@@ -58,13 +59,6 @@ export async function GET(
 
   const stream = new ReadableStream({
     async start(controller) {
-      const modelRuntime = await ModelRuntime.create();
-      if (!modelRuntime.getProvider(provider)?.auth.oauth) {
-        send(controller, { type: "error", message: `Unknown provider: ${provider}` });
-        close(controller);
-        return;
-      }
-
       const registry = getCallbackRegistry();
       const activeTokens = new Set<string>();
       let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
@@ -115,7 +109,16 @@ export async function GET(
       // Also cancel on client disconnect
       abort.signal.addEventListener("abort", cleanup);
 
+      let loginOptions: ReturnType<typeof createOAuthLoginOptions> | undefined;
+      let oauthSucceeded = false;
+      let loginError: Error | undefined;
+      let errorCode: string | undefined;
       try {
+        const modelRuntime = await ModelRuntime.create();
+        if (!modelRuntime.getProvider(provider)?.auth.oauth) {
+          throw new Error(`Unknown provider: ${provider}`);
+        }
+        loginOptions = createOAuthLoginOptions();
         await modelRuntime.login(provider, "oauth", {
           prompt: async (prompt: AuthPrompt) => {
             const request = prompt.type === "manual_code"
@@ -160,19 +163,34 @@ export async function GET(
             }
           },
           signal: abort.signal,
-        });
+        }, loginOptions.options);
 
+        oauthSucceeded = true;
         invalidateModelsCache();
-        send(controller, { type: "success" });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg !== "Login cancelled") {
-          send(controller, { type: "error", message: msg });
-        } else {
-          send(controller, { type: "cancelled" });
-        }
+        loginError = err instanceof Error ? err : new Error(String(err));
       } finally {
         cleanup();
+        try {
+          await loginOptions?.flush();
+        } catch (err) {
+          // 授权失败或取消时保留原始原因；授权成功后的本地保存失败单独反馈。
+          if (!loginError) {
+            loginError = oauthSucceeded
+              ? new Error("OAuth authorization succeeded, but the device ID could not be saved locally", { cause: err })
+              : err instanceof Error ? err : new Error(String(err));
+            if (oauthSucceeded) errorCode = "device_id_persistence_failed";
+          } else {
+            console.error("Failed to flush OAuth login settings", err);
+          }
+        }
+        if (loginError?.message === "Login cancelled") {
+          send(controller, { type: "cancelled" });
+        } else if (loginError) {
+          send(controller, { type: "error", message: loginError.message, code: errorCode });
+        } else {
+          send(controller, { type: "success" });
+        }
         close(controller);
       }
     },

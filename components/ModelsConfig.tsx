@@ -751,7 +751,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     es.onmessage = (e) => {
       const data = JSON.parse(e.data) as {
         type: string; url?: string; instructions?: string | null;
-        token?: string; message?: string; placeholder?: string | null;
+        token?: string; message?: string; code?: string; placeholder?: string | null;
         userCode?: string; verificationUri?: string; intervalSeconds?: number | null; expiresInSeconds?: number | null;
         options?: { id: string; label: string }[];
       };
@@ -779,7 +779,11 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         onRefresh();
       } else if (data.type === "error") {
         es.close();
-        setLoginState({ phase: "error", message: data.message! });
+        setLoginState({
+          phase: "error",
+          message: data.code === "device_id_persistence_failed" ? t("i18n.oauthDeviceIdSaveFailed") : data.message!,
+        });
+        if (data.code === "device_id_persistence_failed") onRefresh();
       } else if (data.type === "cancelled") {
         es.close();
         setLoginState({ phase: "idle" });
@@ -789,7 +793,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       es.close();
       setLoginState((prev) => prev.phase === "success" ? prev : { phase: "error", message: "Connection lost" });
     };
-  }, [provider.id, onRefresh]);
+  }, [provider.id, onRefresh, t]);
 
   const handleLogout = useCallback(async () => {
     await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
