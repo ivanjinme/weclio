@@ -274,6 +274,8 @@ export const enLocale: LocalePlugin = {
     "i18n.newModel": "new model",
     "i18n.addProvider": "Add provider",
     "i18n.selectProviderModel": "Select a provider or model",
+    "i18n.modelsConfigLoadFailed": "Failed to load models configuration. Editing and saving are unavailable until reloaded successfully.",
+    "i18n.reloadModelsConfig": "Reload configuration",
     "i18n.visibleInPrompt": "Visible in model prompt — click to disable",
     "i18n.hiddenFromPrompt": "Hidden from model prompt — click to enable",
     "i18n.skillSearchPlaceholder": "e.g. react, testing, deploy",
