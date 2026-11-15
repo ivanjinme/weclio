@@ -1313,6 +1313,7 @@ export function ModelsConfig() {
   const { t } = useI18n();
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
@@ -1335,20 +1336,32 @@ export function ModelsConfig() {
       .catch(() => {});
   }, []);
 
+  const loadConfig = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch("/api/models-config");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json() as ModelsJson;
+      const normalized = data.providers ? data : { ...data, providers: {} };
+      setConfig(normalized);
+      const keys = Object.keys(normalized.providers ?? {});
+      setSelection(keys.length > 0 ? { type: "provider", name: keys[0] } : null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    fetch("/api/models-config")
-      .then((r) => r.json())
-      .then((d: ModelsJson) => {
-        const normalized = d.providers ? d : { ...d, providers: {} };
-        setConfig(normalized);
-        const keys = Object.keys(normalized.providers ?? {});
-        if (keys.length > 0) setSelection({ type: "provider", name: keys[0] });
-      })
-      .catch(() => setConfig({ providers: {} }))
-      .finally(() => setLoading(false));
+    void loadConfig();
     loadOAuthProviders();
     loadApiKeyProviders();
-  }, [loadOAuthProviders, loadApiKeyProviders]);
+  }, [loadConfig, loadOAuthProviders, loadApiKeyProviders]);
 
   const addCustomProvider = useCallback(() => {
     let finalName = "new-provider";
@@ -1438,6 +1451,7 @@ export function ModelsConfig() {
   }, []);
 
   const handleSave = useCallback(async () => {
+    if (loading || loadError) return;
     setSaveError(null);
     setSavedOk(false);
     const missingBaseUrlProvider = findProviderMissingModelBaseUrl(config.providers);
@@ -1461,7 +1475,7 @@ export function ModelsConfig() {
     } finally {
       setSaving(false);
     }
-  }, [config]);
+  }, [config, loading, loadError]);
 
   const providers = Object.entries(config.providers ?? {});
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn);
@@ -1533,6 +1547,26 @@ export function ModelsConfig() {
       />
     );
   })();
+
+  if (loading || loadError) {
+    return (
+      <div style={{ padding: 20, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12, fontSize: 13, color: "var(--text-muted)" }}>
+        {loading ? t("i18n.loading") : (
+          <>
+            <div role="alert" style={{ color: "#f87171", overflowWrap: "anywhere" }}>
+              {t("i18n.modelsConfigLoadFailed")} {loadError}
+            </div>
+            <button onClick={() => void loadConfig()} style={{
+              padding: "6px 16px", background: "var(--accent)", color: "#fff",
+              border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13,
+            }}>
+              {t("i18n.reloadModelsConfig")}
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
