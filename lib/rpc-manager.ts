@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
-import { beginDesktopTask } from "./desktop-update-gate";
+import { Admission, getDefaultAdmission } from "./agent/admission";
 import type { ComposerPart } from "./composer";
 import { expandSkillParts } from "./skill-input";
 import { invalidateModelsCache } from "./models-cache";
@@ -115,35 +115,6 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
   return [...new Set([...toolNames, ...extensionToolNames])];
 }
 
-function getShellAvailability(): ShellAvailability {
-  if (globalThis.__piShellAvailability) return globalThis.__piShellAvailability;
-
-  const availability: ShellAvailability = { bash: false, powershell: false };
-  let bashError: unknown;
-  let powerShellError: unknown;
-  try {
-    getShellConfig();
-    availability.bash = true;
-  } catch (error) {
-    bashError = error;
-  }
-  try {
-    getPowerShellConfig();
-    availability.powershell = true;
-  } catch (error) {
-    powerShellError = error;
-  }
-  if (!availability.bash && !availability.powershell) {
-    const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[pi-web] No supported shell is available; shell tools are disabled and read/edit/write remain enabled. Bash: ${errorMessage(bashError)}; PowerShell: ${errorMessage(powerShellError)}`,
-    );
-  }
-
-  globalThis.__piShellAvailability = availability;
-  return availability;
-}
-
 // ============================================================================
 // AgentSessionWrapper
 // Wraps AgentSession with the same interface the rest of the app expects
@@ -163,6 +134,7 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private forceEmptySystemPrompt = false;
+  private refreshToolsHook: (() => void) | null = null;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
@@ -176,7 +148,18 @@ export class AgentSessionWrapper {
     public readonly inner: AgentSessionLike,
     private readonly shellAvailability: ShellAvailability,
     private autoNameOnFirstReply = false,
+    private readonly hooks?: AgentRuntimeHooks,
   ) {}
+
+  /** 首个 await 前占位；归属于当前 session 的 runtime。 */
+  reserveTask(): () => void {
+    return this.hooks?.reserveTask() ?? getDefaultAdmission().reserve();
+  }
+
+  private notify(): void {
+    if (this.hooks) this.hooks.notifyRunningChange();
+    else notifyRunningChange();
+  }
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -229,10 +212,10 @@ export class AgentSessionWrapper {
       this.emit(event);
       // Streaming / compaction / tool events flow through here; re-broadcast
       // the running-status snapshot so the sidebar can update live.
-      notifyRunningChange();
+      this.notify();
     });
     this.resetIdleTimer();
-    notifyRunningChange();
+    this.notify();
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -250,9 +233,8 @@ export class AgentSessionWrapper {
   }
 
   setToolNames(toolNames: string[]): void {
-    this.setForceEmptySystemPrompt(toolNames.length === 0);
     this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
-    this.applyForcedEmptySystemPrompt();
+    this.setForceEmptySystemPrompt(toolNames.length === 0);
   }
 
   beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
@@ -273,7 +255,7 @@ export class AgentSessionWrapper {
     }
     if (this.extensionBindingPromise) return this.extensionBindingPromise;
 
-    const finishBinding = beginDesktopTask();
+    const finishBinding = this.reserveTask();
     this.extensionBindingError = null;
     this.extensionBindingPromise = (async () => {
       if (!this._alive) return;
@@ -339,14 +321,24 @@ export class AgentSessionWrapper {
     try {
       return await operation();
     } finally {
-      notifyRunningChange();
+      this.notify();
     }
   }
 
   private applyForcedEmptySystemPrompt(): void {
-    if (this.forceEmptySystemPrompt && this.inner.agent.state) {
-      this.inner.agent.state.systemPrompt = "";
+    if (!this.forceEmptySystemPrompt) return;
+    // 动态注册也会重建 loadout；保留 SDK 刷新，再恢复 Off，不改请求或转录。
+    const runtime = this.inner.resourceLoader.getExtensions().runtime;
+    if (runtime.refreshTools !== this.refreshToolsHook) {
+      const refreshTools = runtime.refreshTools.bind(runtime);
+      this.refreshToolsHook = () => {
+        refreshTools();
+        this.applyForcedEmptySystemPrompt();
+      };
+      runtime.refreshTools = this.refreshToolsHook;
     }
+    this.inner.setActiveToolsByName([]);
+    this.inner.extensionRunner.createCommandContext().getSystemPromptOptions().forceSystemPrompt = "";
   }
 
   private emit(event: AgentEvent): void {
@@ -368,13 +360,8 @@ export class AgentSessionWrapper {
     }, 10 * 60 * 1000);
   }
 
-  /**
-   * Pi normally waits for the first assistant message before it writes a new
-   * session file. Persist its current header/entries early so a just-sent
-   * first prompt (or shell command) is visible in the sidebar immediately.
-   */
-  private persistPendingSession(): void {
-    const manager = this.inner.sessionManager;
+  // 首条 shell、空分支和 prompt 预检前也需可恢复；SDK 会延迟这些会话落盘。
+  private persistPendingSession(manager = this.inner.sessionManager): void {
     const sessionFile = manager.getSessionFile();
     if (!sessionFile || existsSync(sessionFile)) return;
 
@@ -386,10 +373,12 @@ export class AgentSessionWrapper {
       .join("\n") + "\n";
     writeFileSync(sessionFile, content, { encoding: "utf8", flag: "wx" });
 
-    // Subsequent entries must append to the file we just created rather than
-    // wait for Pi's normal first-assistant flush.
-    (manager as unknown as { flushed: boolean }).flushed = true;
-    cacheSessionPath(this.inner.sessionId, sessionFile);
+    // 由 SDK 公开接口接管后续 append；重新加载时保留当前分支，不修改私有 flushed。
+    const leafId = manager.getLeafId();
+    manager.setSessionFile(sessionFile);
+    if (leafId === null) manager.resetLeaf();
+    else manager.branch(leafId);
+    cacheSessionPath(manager.getSessionId(), sessionFile);
   }
 
   onEvent(listener: EventListener): () => void {
@@ -408,7 +397,7 @@ export class AgentSessionWrapper {
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
     const passive = type.startsWith("get_") || type === "abort" || type === "abort_compaction" || type === "abort_bash" || type === "extension_ui_response" || type === "extension_ui_input";
-    const finish = passive ? undefined : beginDesktopTask();
+    const finish = passive ? undefined : this.reserveTask();
     try {
       return await this.sendCommand(command);
     } finally {
@@ -440,13 +429,11 @@ export class AgentSessionWrapper {
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
         this.promptRunning = true;
         this.replySucceeded = false;
-        // Make the new thread discoverable before returning from the prompt
-        // request. Otherwise Pi's deferred first-assistant flush means the
-        // sidebar cannot list it until the whole run completes.
+        // 在 SDK 异步预检前让新会话可发现；首个 user message 后由 SDK 正常持久化。
         this.persistPendingSession();
         invalidateSessionListCache();
-        notifyRunningChange();
-        const finishPrompt = beginDesktopTask();
+        this.notify();
+        const finishPrompt = this.reserveTask();
         let execution: Promise<void>;
         try {
           execution = this.inner.prompt(message, {
@@ -457,14 +444,14 @@ export class AgentSessionWrapper {
         } catch (error) {
           this.promptRunning = false;
           finishPrompt();
-          notifyRunningChange();
+          this.notify();
           throw error;
         }
         execution.then(() => {
           this.promptRunning = false;
           this.resetIdleTimer();
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
-          notifyRunningChange();
+          this.notify();
           if (this.autoNameOnFirstReply && this.replySucceeded) {
             this.autoNameOnFirstReply = false;
             // 复用命名操作，后台执行；失败保留首条消息标题，不重试。
@@ -481,7 +468,7 @@ export class AgentSessionWrapper {
             errorMessage: error instanceof Error ? error.message : String(error),
           });
           if (!streamingBehavior) this.emit({ type: "prompt_done" });
-          notifyRunningChange();
+          this.notify();
         }).finally(finishPrompt);
         return null;
       }
@@ -525,7 +512,7 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
+          systemPrompt: this.inner.systemPrompt ?? "",
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
@@ -565,20 +552,19 @@ export class AgentSessionWrapper {
         // response, so the new session can continue from that exact answer.
         const branchLeafId = command.includeEntry === true ? entry.id : entry.parentId;
         const sessionDir = sessionManager.getSessionDir();
-        let newSessionFile: string;
+        let newManager: SessionManager;
 
         if (!branchLeafId) {
-          const newManager = SessionManager.create(sessionManager.getCwd(), sessionDir);
-          newManager.newSession({ parentSession: currentSessionFile });
-          newSessionFile = newManager.getSessionFile() as string;
+          newManager = SessionManager.create(sessionManager.getCwd(), sessionDir, { parentSession: currentSessionFile });
         } else {
-          const sourceManager = SessionManager.open(currentSessionFile, sessionDir);
-          const forkedPath = sourceManager.createBranchedSession(branchLeafId);
-          if (!forkedPath) throw new Error("Failed to create forked session");
-          newSessionFile = forkedPath;
+          newManager = SessionManager.open(currentSessionFile, sessionDir);
+          if (!newManager.createBranchedSession(branchLeafId)) throw new Error("Failed to create forked session");
         }
 
-        const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId();
+        // 空分支或仅含 setup 的分支尚无文件；先落盘再交付 ID，避免 open 生成另一个身份。
+        this.persistPendingSession(newManager);
+        const newSessionFile = newManager.getSessionFile() as string;
+        const newSessionId = newManager.getSessionId();
         cacheSessionPath(newSessionId, newSessionFile);
         invalidateSessionListCache();
         await this.shutdown();
@@ -714,7 +700,7 @@ export class AgentSessionWrapper {
         this.extensionStatuses.clear();
         this.extensionWidgets.clear();
         this.syncProjectTrust();
-        await this.inner.reload();
+        await this.inner.reload({ beforeSessionStart: () => this.applyForcedEmptySystemPrompt() });
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
@@ -751,7 +737,7 @@ export class AgentSessionWrapper {
           undefined,
           { excludeFromContext: command.excludeFromContext as boolean | undefined },
         );
-        notifyRunningChange();
+        this.notify();
         try {
           const result = await execution;
           this.persistPendingSession();
@@ -759,7 +745,7 @@ export class AgentSessionWrapper {
         } finally {
           this.resetIdleTimer();
           invalidateSessionListCache();
-          notifyRunningChange();
+          this.notify();
         }
       }
 
@@ -792,7 +778,7 @@ export class AgentSessionWrapper {
         try {
           this.onDestroyCallback?.();
         } finally {
-          notifyRunningChange();
+          this.notify();
         }
       }
     };
@@ -1160,6 +1146,7 @@ export class AgentSessionWrapper {
         await this.inner.reload({
           beforeSessionStart: () => {
             this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+            this.applyForcedEmptySystemPrompt();
           },
         });
         this.applyForcedEmptySystemPrompt();
@@ -1175,7 +1162,7 @@ export class AgentSessionWrapper {
 
 // 自动命名保留在 facade，HTTP route 不接触 SDK session。
 export async function autoNameRpcSession(session: AgentSessionWrapper, onlyIfUnnamed = false) {
-  const finish = beginDesktopTask();
+  const finish = session.reserveTask();
   try {
     return await generateRpcSessionName(session, onlyIfUnnamed);
   } finally {
@@ -1196,37 +1183,18 @@ async function generateRpcSessionName(session: AgentSessionWrapper, onlyIfUnname
 }
 
 // ============================================================================
-// Session registry
+// Agent runtime
 // ============================================================================
 
-declare global {
-  var __piSessions: Map<string, AgentSessionWrapper> | undefined;
-  var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
-  var __piStartingSessionCwds: Map<string, number> | undefined;
-  var __piRunningListeners: Set<(ids: string[]) => void> | undefined;
-  var __piShellAvailability: ShellAvailability | undefined;
+// 由宿主注入的最小钩子：准入占位与运行态广播。Service 与 Next 各持有一个实例。
+export interface AgentRuntimeHooks {
+  reserveTask(): () => void;
+  notifyRunningChange(): void;
 }
 
-function getRegistry(): Map<string, AgentSessionWrapper> {
-  if (!globalThis.__piSessions) {
-    globalThis.__piSessions = new Map();
-    const destroy = () => globalThis.__piSessions?.forEach((session) => session.destroy());
-    const shutdown = () => {
-      const sessions = Array.from(globalThis.__piSessions?.values() ?? []);
-      void Promise.allSettled(sessions.map((session) => session.shutdown()));
-    };
-    // Node cannot await exit handlers; direct destruction starts cleanup as a
-    // final best effort. Signal handlers can await extension shutdown hooks.
-    process.once("exit", destroy);
-    process.once("SIGINT", shutdown);
-    process.once("SIGTERM", shutdown);
-  }
-  return globalThis.__piSessions;
-}
-
-function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
-  if (!globalThis.__piStartLocks) globalThis.__piStartLocks = new Map();
-  return globalThis.__piStartLocks;
+/** 会话是否占用更新/维护门禁：运行中或还有排队消息。 */
+export function isSessionBusy(session: AgentSessionWrapper): boolean {
+  return session.isRunning() || (session.isAlive() && session.inner.pendingMessageCount > 0);
 }
 
 function normalizeRpcCwd(cwd: string): string {
@@ -1238,190 +1206,304 @@ function normalizeRpcCwd(cwd: string): string {
   }
 }
 
-function getStartingSessionCwds(): Map<string, number> {
-  if (!globalThis.__piStartingSessionCwds) globalThis.__piStartingSessionCwds = new Map();
-  return globalThis.__piStartingSessionCwds;
+export interface StartSessionResult {
+  session: AgentSessionWrapper;
+  realSessionId: string;
 }
 
-function trackStartingSession(cwd: string): () => void {
-  const startingCwds = getStartingSessionCwds();
-  const key = normalizeRpcCwd(cwd);
-  startingCwds.set(key, (startingCwds.get(key) ?? 0) + 1);
-  return () => {
-    const remaining = (startingCwds.get(key) ?? 1) - 1;
-    if (remaining > 0) startingCwds.set(key, remaining);
-    else startingCwds.delete(key);
-  };
+/**
+ * 运行期所有权：会话、启动锁、起始目录计数、运行态订阅与准入。
+ * 实例化后只归一个宿主持有；默认实例挂在 globalThis 上以兼容 Next 热更新。
+ */
+export class AgentRuntime implements AgentRuntimeHooks {
+  private readonly sessions = new Map<string, AgentSessionWrapper>();
+  private readonly locks = new Map<string, Promise<StartSessionResult>>();
+  private readonly startingCwds = new Map<string, number>();
+  private readonly runningListeners = new Set<(ids: string[]) => void>();
+  private lastRunningSnapshot = "";
+  private shellAvailability: ShellAvailability | undefined;
+  private closing = false;
+
+  constructor(readonly admission: Admission = new Admission()) {}
+
+  reserveTask(): () => void {
+    if (this.closing) throw new Error("Agent service is shutting down");
+    return this.admission.reserve();
+  }
+
+  /** 接管一个已存在的 wrapper（热更新或宿主替换后复用），并随其销毁自动移除。 */
+  attachSession(session: AgentSessionWrapper): void {
+    this.sessions.set(session.sessionId, session);
+    session.onDestroy(() => this.sessions.delete(session.sessionId));
+  }
+
+  getSession(sessionId: string): AgentSessionWrapper | undefined {
+    return this.sessions.get(sessionId);
+  }
+
+  /** 缓存一次自动 shell 探测结果；两种 shell 都不可用时仍允许读写工具。 */
+  getShellAvailability(): ShellAvailability {
+    if (this.shellAvailability) return this.shellAvailability;
+    const availability: ShellAvailability = { bash: false, powershell: false };
+    let bashError: unknown;
+    let powerShellError: unknown;
+    try {
+      getShellConfig();
+      availability.bash = true;
+    } catch (error) {
+      bashError = error;
+    }
+    try {
+      getPowerShellConfig();
+      availability.powershell = true;
+    } catch (error) {
+      powerShellError = error;
+    }
+    if (!availability.bash && !availability.powershell) {
+      const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+      console.warn(
+        `[pi-web] No supported shell is available; shell tools are disabled and read/edit/write remain enabled. Bash: ${message(bashError)}; PowerShell: ${message(powerShellError)}`,
+      );
+    }
+    this.shellAvailability = availability;
+    return availability;
+  }
+
+  /** 记录一次会话启动（含扩展绑定前的窗口）；返回释放函数。 */
+  trackStartingSession(cwd: string): () => void {
+    const key = normalizeRpcCwd(cwd);
+    this.startingCwds.set(key, (this.startingCwds.get(key) ?? 0) + 1);
+    return () => {
+      const remaining = (this.startingCwds.get(key) ?? 1) - 1;
+      if (remaining > 0) this.startingCwds.set(key, remaining);
+      else this.startingCwds.delete(key);
+    };
+  }
+
+  hasBusyForCwds(cwds: Iterable<string>): boolean {
+    const targetCwds = new Set(Array.from(cwds, normalizeRpcCwd));
+    for (const cwd of targetCwds) {
+      if (this.startingCwds.has(cwd)) return true;
+    }
+    return Array.from(this.sessions.values()).some(
+      (session) => targetCwds.has(normalizeRpcCwd(session.cwd)) && session.isRunning(),
+    );
+  }
+
+  hasBusyForCwd(cwd: string): boolean {
+    return this.hasBusyForCwds([cwd]);
+  }
+
+  async destroyForCwds(cwds: Iterable<string>): Promise<number> {
+    const targetCwds = new Set(Array.from(cwds, normalizeRpcCwd));
+    const sessions = Array.from(this.sessions.values()).filter(
+      (session) => targetCwds.has(normalizeRpcCwd(session.cwd)),
+    );
+    await Promise.all(sessions.map((session) => session.shutdown()));
+    return sessions.length;
+  }
+
+  hasBusyTasks(): boolean {
+    return this.locks.size > 0 || this.startingCwds.size > 0
+      || Array.from(this.sessions.values()).some(isSessionBusy);
+  }
+
+  runningIds(): string[] {
+    const ids = new Set<string>();
+    for (const [sessionId, session] of this.sessions) {
+      if (session.isRunning()) ids.add(session.sessionId || sessionId);
+    }
+    return [...ids];
+  }
+
+  /** 订阅运行中会话集合的变化；返回取消订阅函数。 */
+  subscribeRunning(listener: (ids: string[]) => void): () => void {
+    this.runningListeners.add(listener);
+    return () => { this.runningListeners.delete(listener); };
+  }
+
+  /** 集合变化时才广播，可高频调用。 */
+  notifyRunningChange(): void {
+    const ids = this.runningIds();
+    const snapshot = JSON.stringify([...ids].sort());
+    if (snapshot === this.lastRunningSnapshot) return;
+    this.lastRunningSnapshot = snapshot;
+    for (const listener of this.runningListeners) {
+      try { listener(ids); } catch { /* 订阅方错误不应影响运行 */ }
+    }
+  }
+
+  /** 同 ID 并发合并为一次启动；失败释放锁，允许重试。 */
+  async startSession(
+    sessionId: string,
+    sessionFile: string,
+    cwd: string,
+    toolNames?: string[],
+    toolPreset?: ToolPreset,
+  ): Promise<StartSessionResult> {
+    if (toolPreset !== undefined && !isToolPreset(toolPreset)) {
+      throw new Error(`Invalid tool preset: ${String(toolPreset)}`);
+    }
+    if (this.closing) throw new Error("Agent service is shutting down");
+
+    const existing = this.sessions.get(sessionId);
+    if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
+
+    const inflight = this.locks.get(sessionId);
+    if (inflight) return inflight;
+
+    const finishTask = this.reserveTask();
+    const finishStartingSession = this.trackStartingSession(cwd);
+    const starting = (async () => {
+      // Some extensions access the SDK's global theme even outside the terminal UI.
+      initTheme();
+      const agentDir = getAgentDir();
+
+      const sessionManager = sessionFile
+        ? SessionManager.open(sessionFile, undefined)
+        : SessionManager.create(cwd, undefined);
+
+      // Off 只改变 active tools；创建时传空 allow-list 会永久阻止随后重新启用工具。
+      const toolsDisabled = toolPreset === "none" || (toolPreset === undefined && toolNames?.length === 0);
+
+      // Build services first so extension-registered providers are available
+      // before the SDK restores the saved model from the session file.
+      // Gate untrusted project extensions so opening a repository does not run
+      // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
+      const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
+      const services = await createAgentSessionServices({
+        cwd,
+        agentDir,
+        resourceLoaderOptions: {
+          appendSystemPromptOverride: (base) => [...base, PROGRESS_UPDATE_INSTRUCTION],
+        },
+        ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
+      });
+      const shellAvailability = this.getShellAvailability();
+
+      const { session: inner } = await createAgentSessionFromServices({
+        services,
+        sessionManager,
+      });
+
+      const wrapper = new AgentSessionWrapper(inner, shellAvailability, !sessionFile, this);
+      if (toolPreset !== undefined) {
+        wrapper.setToolPreset(toolPreset);
+      } else if (toolNames !== undefined) {
+        wrapper.setToolNames(toolNames);
+      }
+      wrapper.start();
+
+      const realSessionId = inner.sessionId as string;
+      const realSessionFile = inner.sessionFile as string | undefined;
+      if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
+
+      wrapper.onDestroy(() => this.sessions.delete(realSessionId));
+      this.sessions.set(realSessionId, wrapper);
+      wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolsDisabled });
+
+      return { session: wrapper, realSessionId };
+    })().finally(() => {
+      this.locks.delete(sessionId);
+      finishStartingSession();
+      finishTask();
+    });
+
+    this.locks.set(sessionId, starting);
+    return starting;
+  }
+
+  /** 停止接收新任务，等待在管会话收尾；超过时限返回超时标记。 */
+  async drain(timeoutMs = 10_000): Promise<{ sessions: number; timedOut: boolean }> {
+    this.closing = true;
+    const sessions = [...this.sessions.values()];
+    if (sessions.length === 0) return { sessions: 0, timedOut: false };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout("timeout"), timeoutMs);
+      timer.unref?.();
+    });
+    try {
+      const outcome = await Promise.race([
+        Promise.allSettled(sessions.map((session) => session.shutdown())).then(() => "settled" as const),
+        timeout,
+      ]);
+      return { sessions: sessions.length, timedOut: outcome === "timeout" };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** 进程退出时的同步兜底；不等待扩展钩子。 */
+  destroyAll(): void {
+    for (const session of this.sessions.values()) session.destroy();
+  }
+}
+
+declare global {
+  var __weclioAgentRuntime: AgentRuntime | undefined;
+}
+
+/** Next 宿主的默认实例：热更新后仍复用同一份会话与准入。 */
+export function getDefaultRuntime(): AgentRuntime {
+  // 热更新可能留下旧结构的实例；形状不符时丢弃，避免旧方法集继续被调用。
+  const existing = globalThis.__weclioAgentRuntime;
+  if (existing && typeof existing.startSession !== "function") globalThis.__weclioAgentRuntime = undefined;
+  if (!globalThis.__weclioAgentRuntime) {
+    const runtime = new AgentRuntime(getDefaultAdmission());
+    globalThis.__weclioAgentRuntime = runtime;
+    // Node cannot await exit handlers; direct destruction is a final best effort.
+    process.once("exit", () => runtime.destroyAll());
+    const shutdown = () => { void runtime.drain(); };
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+  }
+  return globalThis.__weclioAgentRuntime;
 }
 
 export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
-  return getRegistry().get(sessionId);
+  return getDefaultRuntime().getSession(sessionId);
 }
 
 export function hasBusyRpcSessionForCwds(cwds: Iterable<string>): boolean {
-  const targetCwds = new Set(Array.from(cwds, normalizeRpcCwd));
-  for (const cwd of targetCwds) {
-    if (getStartingSessionCwds().has(cwd)) return true;
-  }
-  return Array.from(getRegistry().values()).some(
-    (session) => targetCwds.has(normalizeRpcCwd(session.cwd)) && session.isRunning(),
-  );
+  return getDefaultRuntime().hasBusyForCwds(cwds);
 }
 
 export function hasBusyRpcSessionForCwd(cwd: string): boolean {
-  return hasBusyRpcSessionForCwds([cwd]);
+  return getDefaultRuntime().hasBusyForCwd(cwd);
 }
 
-export async function destroyRpcSessionsForCwds(cwds: Iterable<string>): Promise<number> {
-  const targetCwds = new Set(Array.from(cwds, normalizeRpcCwd));
-  const sessions = Array.from(getRegistry().values()).filter(
-    (session) => targetCwds.has(normalizeRpcCwd(session.cwd)),
-  );
-  await Promise.all(sessions.map((session) => session.shutdown()));
-  return sessions.length;
+export function destroyRpcSessionsForCwds(cwds: Iterable<string>): Promise<number> {
+  return getDefaultRuntime().destroyForCwds(cwds);
 }
 
-export async function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
-  return destroyRpcSessionsForCwds([cwd]);
+export function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
+  return getDefaultRuntime().destroyForCwds([cwd]);
 }
 
 export function hasBusyDesktopTasks(): boolean {
-  return getLocks().size > 0 || getStartingSessionCwds().size > 0 || Array.from(getRegistry().values()).some(
-    (session) => session.isRunning() || (session.isAlive() && session.inner.pendingMessageCount > 0),
-  );
+  return getDefaultRuntime().hasBusyTasks();
 }
 
 export function getRunningRpcSessionIds(): string[] {
-  const ids = new Set<string>();
-  for (const [sessionId, session] of getRegistry()) {
-    if (session.isRunning()) ids.add(session.sessionId || sessionId);
-  }
-  return [...ids];
+  return getDefaultRuntime().runningIds();
 }
 
-// ----------------------------------------------------------------------------
-// Running-status broadcaster
-//
-// Pushes the current set of running session ids to subscribers whenever any
-// session's running state may have changed. This lets the sidebar receive live
-// updates over SSE instead of polling. Listeners live on globalThis so they
-// survive Next.js hot-reload.
-// ----------------------------------------------------------------------------
-
-function getRunningListeners(): Set<(ids: string[]) => void> {
-  if (!globalThis.__piRunningListeners) globalThis.__piRunningListeners = new Set();
-  return globalThis.__piRunningListeners;
-}
-
-/** Subscribe to running-session-id changes. Returns an unsubscribe function. */
 export function subscribeRunningSessions(listener: (ids: string[]) => void): () => void {
-  const listeners = getRunningListeners();
-  listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  return getDefaultRuntime().subscribeRunning(listener);
 }
 
-let lastRunningSnapshot = "";
-
-/**
- * Recompute the running-session-id set and, if it changed since the last
- * notification, broadcast it to subscribers. Cheap to call often.
- */
 export function notifyRunningChange(): void {
-  const ids = getRunningRpcSessionIds();
-  const snapshot = JSON.stringify([...ids].sort());
-  if (snapshot === lastRunningSnapshot) return;
-  lastRunningSnapshot = snapshot;
-  for (const listener of getRunningListeners()) {
-    try { listener(ids); } catch { /* ignore listener errors */ }
-  }
+  getDefaultRuntime().notifyRunningChange();
 }
 
-/**
- * Get or create an AgentSession for the given session.
- * For new sessions (sessionFile === ""), pi generates its own id.
- * Pass toolNames for an exact active-tool list, or toolPreset for a dynamic preset.
- */
-export async function startRpcSession(
+/** 启动或复用会话；默认入口供 Next 宿主使用，Service 直接操作自己的 runtime。 */
+export function startRpcSession(
   sessionId: string,
   sessionFile: string,
   cwd: string,
   toolNames?: string[],
   toolPreset?: ToolPreset,
-): Promise<{ session: AgentSessionWrapper; realSessionId: string }> {
-  if (toolPreset !== undefined && !isToolPreset(toolPreset)) {
-    throw new Error(`Invalid tool preset: ${String(toolPreset)}`);
-  }
-
-  const registry = getRegistry();
-  const locks = getLocks();
-
-  const existing = registry.get(sessionId);
-  if (existing?.isAlive()) return { session: existing, realSessionId: sessionId };
-
-  const inflight = locks.get(sessionId);
-  if (inflight) return inflight;
-
-  const finishTask = beginDesktopTask();
-  const finishStartingSession = trackStartingSession(cwd);
-  const starting = (async () => {
-    // Some extensions access the SDK's global theme even outside the terminal UI.
-    initTheme();
-    const agentDir = getAgentDir();
-
-    const sessionManager = sessionFile
-      ? SessionManager.open(sessionFile, undefined)
-      : SessionManager.create(cwd, undefined);
-
-    // An empty allow-list is needed only when the explicit request is Off.
-    // Non-empty selections leave registration unrestricted so extension tools load;
-    // the active set is narrowed after session creation.
-    const toolsDisabled = toolPreset === "none" || (toolPreset === undefined && toolNames?.length === 0);
-    const toolsOption = toolsDisabled ? [] : undefined;
-
-    // Build services first so extension-registered providers are available
-    // before the SDK restores the saved model from the session file.
-    // Gate untrusted project extensions so opening a repository does not run
-    // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
-    const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
-    const services = await createAgentSessionServices({
-      cwd,
-      agentDir,
-      resourceLoaderOptions: {
-        appendSystemPromptOverride: (base) => [...base, PROGRESS_UPDATE_INSTRUCTION],
-      },
-      ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
-    });
-    const shellAvailability = getShellAvailability();
-
-    const { session: inner } = await createAgentSessionFromServices({
-      services,
-      sessionManager,
-      ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
-    });
-
-    const wrapper = new AgentSessionWrapper(inner, shellAvailability, !sessionFile);
-    if (toolPreset !== undefined) {
-      wrapper.setToolPreset(toolPreset);
-    } else if (toolNames !== undefined) {
-      wrapper.setToolNames(toolNames);
-    }
-    wrapper.start();
-
-    const realSessionId = inner.sessionId as string;
-    const realSessionFile = inner.sessionFile as string | undefined;
-    if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
-
-    wrapper.onDestroy(() => registry.delete(realSessionId));
-    registry.set(realSessionId, wrapper);
-    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolsDisabled });
-
-    return { session: wrapper, realSessionId };
-  })().finally(() => {
-    locks.delete(sessionId);
-    finishStartingSession();
-    finishTask();
-  });
-
-  locks.set(sessionId, starting);
-  return starting;
+): Promise<StartSessionResult> {
+  return getDefaultRuntime().startSession(sessionId, sessionFile, cwd, toolNames, toolPreset);
 }

@@ -1,5 +1,7 @@
 import type {
   AgentSessionEvent,
+  ExtensionCommandContext,
+  ExtensionRuntime,
   SessionManager,
   SettingsManager,
   SlashCommandInfo,
@@ -67,10 +69,12 @@ interface SkillLike {
 }
 
 interface ResourceLoaderLike {
+  getExtensions(): { runtime: Pick<ExtensionRuntime, "refreshTools"> };
   getSkills(): { skills: SkillLike[] };
 }
 
 interface ExtensionRunnerLike {
+  createCommandContext(): Pick<ExtensionCommandContext, "getSystemPromptOptions">;
   getRegisteredCommands(): Array<{
     invocationName: string;
     description?: string;
@@ -123,6 +127,7 @@ export interface ExtensionUiContextLike {
 export interface AgentSessionLike {
   readonly sessionId: string;
   readonly sessionFile: string | undefined;
+  readonly systemPrompt: string;
   readonly isStreaming: boolean;
   readonly isCompacting: boolean;
   readonly autoCompactionEnabled: boolean;
