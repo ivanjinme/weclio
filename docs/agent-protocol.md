@@ -72,6 +72,11 @@ GET    /v1/workspaces/browse?path=       目录浏览
 GET    /v1/projects/trust?cwd=           信任状态
 POST   /v1/projects/trust                { cwd } → 信任并释放受限实例
 POST   /v1/projects/rebind               { oldRoot, newRoot } → 迁移会话路径
+GET    /v1/models?cwd=                   模型列表（受项目信任门控）
+GET    /v1/settings/models               models.json 读取
+PUT    /v1/settings/models               models.json 写入
+PUT    /v1/settings/models/default       { provider, modelId } → 全局默认模型
+POST   /v1/settings/models/test          模型连通性测试（临时配置，不落盘）
 GET    /v1/git/status?cwd=               Git 状态
 GET    /v1/git/diff?cwd=&path=           Git 文件 diff
 GET    /v1/files/<path>?type=            list / read / download / meta / preview / watch（read 二进制与 download 支持 Range）

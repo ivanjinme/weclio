@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A1、A3.1、A2.1、A2.2a、A2.2b-1/2/3/4（完整文件能力）已实施；A2.2c 起未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1（模型配置）已实施；A2.2c-2 起未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -94,7 +94,8 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 | **A2.2b-2 Git / File Index（已实施）** | 新增 `lib/agent/git-service.ts` 与 `lib/agent/file-index-service.ts`；`requireAllowedDirectory` 统一“绝对路径 + 词法根 + realpath”校验；git 子进程、diff 祖先授权、索引缓存都留在 Service；`git/*`、`file-index` 路由改为薄适配；Service 增加 `/v1/git/status`、`/v1/git/diff`、`/v1/files/index` | A2.2b-1 | 授权与 git 子进程不得绕过 roots；索引缓存沿用 10s TTL/上限 | 相对/越界/缺失路径分别 400/403/404；tracked/untracked、已删除文件 diff、非 git 目录回退、查询匹配；操作落在 Service 文件系统 |
 | **A2.2b-3 Files Service（已实施）** | 新增 `lib/agent/files-service.ts`（授权、list/read/meta/download/preview/watch、写入、Range 解析、响应头与 SVG CSP）；Service 增加 `GET /v1/files/<path>` 与 `PUT /v1/files/<path>`，用 Node 流实现 200/206/416 与 watch SSE；Next files 路由保持原实现（安全原语共用，传输层暂不合并） | A2.2b-2 | 不重写高风险流式路由；Service 侧独立实现传输层，B4 退役 Next 时收敛 | 文本读写、meta、目录列表、Range 206、非法区间 416、watch 首事件与断开清理、非法 type 400；路径越界仍 403 |
 | **A2.2b-4 Multipart 上传（已实施）** | Service 新增 `POST /v1/files/<path>?type=upload|upload-check`：用 `Readable.toWeb` 把 Node 请求适配为 Web Request，复用 `parseFormDataWithinLimit` 的字节上限与 `file-upload` 的冲突策略/替换语义；`resolveUploadDirectory` 做词法根 + realpath 双重校验 | A2.2b-3 | 不为适配重写 multipart 解析；上传仍受 25MB/100MB 限制 | 新增/冲突 409（含 conflicts）、skip/overwrite、预检、非法文件名 400、越界目录 403；文件真实落盘 |
-| **A2.2c Settings / Provider Auth / Resources** | `models*`、`auth/*`、`plugins/skills/usage`、OAuth registry、模型缓存/出站网络；资源发现同样经过 trust，安装/更新进入 admission；从 `electron/packages.mjs` 抽离无 Electron 依赖的 Service 分发初始化，B2 提供资源并消费它 | A2.2b-4（已完成） | 消除剩余 Next 状态和凭据所有权；OAuth 回调位置与动态扩展是重点，不因 GET/models-only 绕过 trust | API key/模型配置脱敏、OAuth 授权流/手动回调隔离、mock 安装+真实临时 TS 扩展加载、模型缓存失效、安装与维护竞态；不使用 Web host HOME 写 Service 配置 |
+| **A2.2c-1 Models / Config（已实施）** | 新增 `lib/agent/settings-service.ts`：模型列表（保留 trust 门控与 enabledModels 过滤）、models.json 读写、默认模型持久化、临时配置连通性测试；`models`、`models-config`、`models-config/default`、`models-config/test` 路由改为薄适配；Service 增加 `/v1/models`、`/v1/settings/models*` | A2.2b-4（已完成） | 模型枚举会执行扩展工厂，必须继续走 trust；配置与凭据仍归 Service 的 agentDir | 未授权 cwd 403、缺目录 400、损坏 models.json 不被静默覆盖、默认模型写入 settings.json、无 key 时测试返回 ok:false 且不联网 |
+| **A2.2c-2 Provider Auth / Resources** | `auth/*`（providers、api-key、OAuth 登录/回调/登出）、`models-config/providers/[provider]`（联网刷新）、`plugins`、`skills/*`、`usage/codex`；安装/更新进入 admission；从 `electron/packages.mjs` 抽离无 Electron 依赖的分发初始化，B2 提供资源并消费它 | A2.2c-1 | 凭据、OAuth 回调与 npm/Git 子进程风险最高，需人工确认后再实施 | 授权流/手动回调隔离、API key 脱敏读写、安装/更新与维护竞态、模型缓存失效；不使用 Web host HOME 写 Service 配置 |
 
 **A2 总验收：** 不启动/安装 Next 或 Electron，独立 Service 在仓库外完成上表全部现存能力；同一 SDK 行为基线通过。本阶段用隔离编译目录验证运行能力；独立生产依赖/Runtime 产物验收归 B2，不反向阻断 A2 合并，也不能仅凭源码入口就宣称分发已完成。
 
@@ -142,7 +143,7 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1 ✅ → A2.2b-2 ✅ → A2.2b-3 ✅ → A2.2b-4 ✅ → A2.2c ⏭ → A3.2 → A3.3 → A5
+A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1 ✅ → A2.2b-2 ✅ → A2.2b-3 ✅ → A2.2b-4 ✅ → A2.2c-1 ✅ → A2.2c-2 ⏭ → A3.2 → A3.3 → A5
 
 B1 消费 A3.3；B2 消费 A2 的独立入口/能力
 B3 消费 B1/B2 + A3，接通 Local 生命周期和更新保护

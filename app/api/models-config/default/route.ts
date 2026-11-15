@@ -1,24 +1,17 @@
 import { NextResponse } from "next/server";
-import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
-import { invalidateModelsCache } from "@/lib/models-cache";
+import { setDefaultModel } from "@/lib/agent/settings-service";
+import { protocolErrorResponse } from "@/lib/agent/next-error-response";
 import { getDefaultWorkspacePath } from "@/lib/default-workspace";
 
 export const dynamic = "force-dynamic";
 
-// Remember the last user-selected model as the global default in
-// ~/.pi/agent/settings.json, so new sessions (any browser) start on it.
+// 记住用户最后选择的模型为全局默认，新会话（任何浏览器）从它开始。
 export async function PUT(req: Request) {
   try {
     const { provider, modelId } = (await req.json()) as { provider?: unknown; modelId?: unknown };
-    if (typeof provider !== "string" || typeof modelId !== "string") {
-      return NextResponse.json({ error: "provider and modelId are required" }, { status: 400 });
-    }
-    const settingsManager = SettingsManager.create(getDefaultWorkspacePath(), getAgentDir(), { projectTrusted: false });
-    settingsManager.setDefaultModelAndProvider(provider, modelId);
-    await settingsManager.flush();
-    invalidateModelsCache();
+    await setDefaultModel(provider, modelId, getDefaultWorkspacePath());
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return protocolErrorResponse(error);
   }
 }

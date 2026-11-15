@@ -1,30 +1,22 @@
 import { NextResponse } from "next/server";
-import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { invalidateModelsCache } from "@/lib/models-cache";
-import { readModelsJsonFile, writeModelsJsonFile } from "@/lib/models-config-file";
+import { readModelsConfig, writeModelsConfig } from "@/lib/agent/settings-service";
+import { protocolErrorResponse } from "@/lib/agent/next-error-response";
 
 export const dynamic = "force-dynamic";
 
-function getModelsPath(): string {
-  return join(getAgentDir(), "models.json");
-}
-
 export async function GET() {
   try {
-    return NextResponse.json(readModelsJsonFile(getModelsPath()));
+    return NextResponse.json(readModelsConfig());
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return protocolErrorResponse(error);
   }
 }
 
 export async function PUT(req: Request) {
   try {
-    const body: unknown = await req.json();
-    writeModelsJsonFile(getModelsPath(), body);
-    invalidateModelsCache();
+    writeModelsConfig(await req.json());
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return protocolErrorResponse(error);
   }
 }

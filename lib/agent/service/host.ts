@@ -34,6 +34,7 @@ import {
   MAX_UPLOAD_TOTAL_BYTES,
 } from "../files-service";
 import { gitDiff, gitStatus } from "../git-service";
+import { listModels, readModelsConfig, setDefaultModel, testModel, writeModelsConfig } from "../settings-service";
 import {
   browseWorkspace,
   ensureWorkspace,
@@ -470,6 +471,38 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     if (method === "POST" && url.pathname === "/v1/projects/rebind") {
       const body = JSON.parse(await readBody(req)) as { oldRoot?: unknown; newRoot?: unknown };
       sendJson(res, 200, await rebindProject(body, runtime), requestId);
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/v1/models") {
+      sendJson(res, 200, await listModels({
+        cwd: url.searchParams.get("cwd"),
+        defaultWorkspace: config.workspace,
+      }), requestId);
+      return;
+    }
+
+    if (url.pathname === "/v1/settings/models") {
+      if (method === "GET") {
+        sendJson(res, 200, readModelsConfig(), requestId);
+        return;
+      }
+      if (method === "PUT") {
+        writeModelsConfig(JSON.parse(await readBody(req)));
+        sendJson(res, 200, { success: true }, requestId);
+        return;
+      }
+    }
+
+    if (method === "PUT" && url.pathname === "/v1/settings/models/default") {
+      const body = JSON.parse(await readBody(req)) as { provider?: unknown; modelId?: unknown };
+      await setDefaultModel(body.provider, body.modelId, config.workspace);
+      sendJson(res, 200, { success: true }, requestId);
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/v1/settings/models/test") {
+      sendJson(res, 200, await testModel(JSON.parse(await readBody(req))), requestId);
       return;
     }
 
