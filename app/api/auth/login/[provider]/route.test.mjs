@@ -89,6 +89,16 @@ test("corrupt project settings do not misreport a successful global device ID sa
   assert.ok(JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).deviceId);
 });
 
+test("OAuth without a device ID succeeds despite unrelated corrupt global settings", async (t) => {
+  const { dir, runtime, events } = fixture(t);
+  const settingsPath = path.join(dir, "settings.json");
+  fs.writeFileSync(settingsPath, "{invalid json");
+  runtime.login = async () => { order.push("authorized"); };
+  assert.deepEqual(await events(), [{ type: "success" }]);
+  assert.deepEqual(order, ["authorized", "invalidate", "flush-start", "flush-end", "success", "close"]);
+  assert.equal(fs.readFileSync(settingsPath, "utf8"), "{invalid json");
+});
+
 test("a pending flush delays success instead of closing the stream early", async (t) => {
   const { events } = fixture(t);
   const flush = Promise.withResolvers();
