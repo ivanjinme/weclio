@@ -367,6 +367,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.submit": "提交",
     "i18n.login": "登录",
     "i18n.relogin": "重新登录",
+    "i18n.oauthDeviceIdSaveFailed": "OAuth授权已成功但设备ID本地保存失败",
     "i18n.disconnect": "断开连接",
     "i18n.networkError": "网络错误",
     "i18n.continuing": "继续中…",

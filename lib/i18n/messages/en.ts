@@ -367,6 +367,7 @@ export const enLocale: LocalePlugin = {
     "i18n.submit": "Submit",
     "i18n.login": "Login",
     "i18n.relogin": "Re-login",
+    "i18n.oauthDeviceIdSaveFailed": "OAuth authorization succeeded, but the device ID could not be saved locally.",
     "i18n.disconnect": "Disconnect",
     "i18n.networkError": "Network error",
     "i18n.continuing": "Continuing…",
