@@ -7,7 +7,8 @@ export function createOAuthLoginOptions(agentDir: string = getAgentDir()) {
     options: { getDeviceId: () => settings.getOrCreateDeviceId() },
     flush: async () => {
       await settings.flush();
-      const errors = settings.drainErrors();
+      // 设备 ID 仅保存在 global 设置中，project 错误不影响其持久化。
+      const errors = settings.drainErrors().filter(({ scope }) => scope === "global");
       if (errors.length > 0) {
         throw new AggregateError(errors.map(({ error }) => error), "Failed to save OAuth device ID locally");
       }

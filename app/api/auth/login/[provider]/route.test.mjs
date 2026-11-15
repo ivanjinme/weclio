@@ -80,6 +80,15 @@ test("success is emitted only after the real device ID write is flushed", async 
   assert.ok(JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).deviceId);
 });
 
+test("corrupt project settings do not misreport a successful global device ID save", async (t) => {
+  const { dir, events } = fixture(t);
+  fs.mkdirSync(path.join(dir, ".pi"));
+  fs.writeFileSync(path.join(dir, ".pi", "settings.json"), "{invalid json");
+  assert.deepEqual(await events(), [{ type: "success" }]);
+  assert.deepEqual(order, ["authorized", "invalidate", "flush-start", "flush-end", "success", "close"]);
+  assert.ok(JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).deviceId);
+});
+
 test("a pending flush delays success instead of closing the stream early", async (t) => {
   const { events } = fixture(t);
   const flush = Promise.withResolvers();
