@@ -130,10 +130,20 @@ function authorized(req: IncomingMessage, token: string): boolean {
   return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
 
-function isAllowedOrigin(req: IncomingMessage): boolean {
+/** 额外允许的来源（如静态 UI 的 weclio://app 或未来的 Web 源），逗号分隔。 */
+function configuredOrigins(): string[] {
+  return (process.env.WECLIO_AGENT_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function isAllowedOrigin(req: IncomingMessage, allowed = configuredOrigins()): boolean {
   const origin = req.headers.origin;
   // 浏览器跨源必须显式允许；本机客户端不带 Origin。
-  return origin === undefined || origin === "null" || origin === `http://${req.headers.host}`;
+  if (origin === undefined || origin === "null") return true;
+  if (origin === `http://${req.headers.host}`) return true;
+  return allowed.includes(origin);
 }
 
 const MAX_TEXT_WRITE_BYTES = 8 * 1024 * 1024;

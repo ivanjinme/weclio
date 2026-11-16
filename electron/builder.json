@@ -9,6 +9,7 @@
     "electron/main.mjs",
     "lib/startup-splash.mjs",
     "electron/navigation.mjs",
+    "electron/protocol.mjs",
     "electron/preload.cjs",
     "electron/updates.mjs",
     "electron/update-signature.mjs",

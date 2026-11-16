@@ -52,7 +52,8 @@ Weclio
   - 抽出宿主接缝：`lib/navigation.ts`（Next 实现，默认）与 `lib/navigation.static.ts`（history API + popstate），Vite 用别名替换；`lib/dynamic.tsx` 提供 React.lazy 版本，兼容现有「组件或 fallback 组件」返回形态。
   - `components/AppShell.tsx`、`components/MarkdownEditor.tsx` 不再直接 import `next/*`。
   - `npm run build:desktop-ui` 产出约 5.8MB 静态资产；新增 `lib/desktop-static-entry.test.mjs` 守护「入口存在、接缝唯一、产物不含服务端代码」。
-- **未做（需真实 Electron 环境验证）：** 受限自定义协议（`weclio://app`）、CSP/MIME、Renderer 加载静态资产、preload 与 IPC 校验随静态 origin 调整、以及聊天/历史/文件/预览/下载/设置/OAuth 的浏览器回归。**在完成这些之前，Desktop 仍走 Next 入口，不得声称「已不再启动 next start」。**
+- **协议层已实施：** `electron/protocol.mjs` 注册 `weclio://app`（standard/secure/supportFetchAPI）、只读静态目录、显式拒绝 parent 段与根外路径、按扩展名给 MIME、附严格 CSP 与 nosniff；`electron/navigation.mjs` 的 `isAppUrl` 同时信任 `weclio://app` 与过渡期 loopback；Service 的来源白名单可配置（`WECLIO_AGENT_ALLOWED_ORIGINS`，默认仍只允许同源），smoke 已验证 `Origin: weclio://app` 放行、未知来源仍 403。
+- **仍未接线：** `main.mjs` 依旧 `loadURL(SERVER_URL)` 走 Next；要把窗口切到 `weclio://app/index.html` 需要一次性完成「协议注册 + 静态目录布局 + Service 白名单下发 + 回归」，否则窗口会加载成功但连不上 Agent。**在切换之前，Desktop 仍启动 `next start`，验收未达成。**
 - **依赖：** A3.3 已完成；Vite 依赖已获批并加入 devDependencies（vite 7、@vitejs/plugin-react 5）。
 
 ## 4. B2 — Local Agent Service 打包

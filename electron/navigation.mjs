@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { APP_ORIGIN } from "./protocol.mjs";
 
 function appOrigin(address) {
   // 仍只接受裸 loopback origin；显式 :80 会被 URL 标准化省略。
@@ -35,9 +36,11 @@ export function restoreDesktopPort(userDataPath, env = process.env) {
   return origin;
 }
 
+// 可信来源：静态 UI 的 `weclio://app`，以及过渡期的 loopback Next 服务。
 export function isAppUrl(value) {
   try {
-    return new URL(value).origin === SERVER_URL;
+    const origin = new URL(value).origin;
+    return origin === APP_ORIGIN || origin === SERVER_URL;
   } catch {
     return false;
   }
