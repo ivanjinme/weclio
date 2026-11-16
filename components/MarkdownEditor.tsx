@@ -1,5 +1,5 @@
 "use client";
-import dynamic from "next/dynamic";
+import dynamic from "@/lib/dynamic";
 import { useEffect } from "react";
 import { useI18n } from "@/hooks/useI18n";
 

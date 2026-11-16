@@ -44,14 +44,16 @@ Weclio
 
 ## 3. B1 — Desktop UI 静态化
 
-### PR B1 — 静态入口与最小宿主适配
+### PR B1 — 静态 React 入口与宿主适配（静态构建已实施，Electron 接入未做）
 
-- **模块/修改：** `app/page/layout`、`AppShell`、`MarkdownEditor`、样式/字体/splash、Electron 静态资源入口。Vite 方向已获确认，实施时锁定兼容版本；Web 保留 Next，组件/hooks 共用，不拆不必要 packages。
-- **具体工作：** Next navigation 换薄导航适配，保持 session URL、刷新/back/forward；React lazy/Suspense 替代 Next dynamic；字体离线可用并核对许可。版本展示分开 Desktop/Web 编译版本与 Service 握手版本，不用内置 Pi 版本冒充 Remote 版本。
-- **安全边界：** 优先受限静态应用协议，如 `weclio://app`；固定 host、防路径逃逸、正确 MIME/CSP，只提供 UI 资产，**不代理 Agent API**。Agent 仍 HTTP+SSE；真实验证自定义 origin 的 CORS/fetch/permissions。禁止 `webSecurity:false`、Node integration 或为图方便绕过 CSP。
-- **依赖：** A3.3；入口/导航可提前开发，完整验收使用真实 Service。B1 同时提供可供 B3 集成的 staging 静态 UI，而不是等 B4 才首次可运行。
-- **风险/收益：** 移除 Next Server 载荷；回归风险是 lazy editor、资源 base、字体首屏、预览 iframe/worker/blob、麦克风/剪贴板、dirty draft。收益只记录实际包体/文件数/启动/总内存，不预设降幅。
-- **测试/验收：** 真实 Electron 静态 Renderer→独立 Service，无 `next start`，聊天/树/设置/文件 watch/编辑/预览/下载/音频/OAuth 可用；Web 共用组件回归。恶意导航、伪造 IPC sender、预览访问 preload、静态路径逃逸被拒，renderer bundle 无 Pi/Node-only 模块。
+- **已完成：**
+  - 新增 `desktop/index.html` + `desktop/main.tsx`：静态入口直接挂载与 Web 共用的 `AppShell`，自带启动 splash 与主题/侧栏宽度恢复，无任何服务端渲染。
+  - 新增 `vite.config.ts`：`base: "./"`、React 插件、`@` 别名，输出 `build/desktop-ui`（纯静态 HTML+JS，**不含** Pi SDK / Node 内建模块）。
+  - 抽出宿主接缝：`lib/navigation.ts`（Next 实现，默认）与 `lib/navigation.static.ts`（history API + popstate），Vite 用别名替换；`lib/dynamic.tsx` 提供 React.lazy 版本，兼容现有「组件或 fallback 组件」返回形态。
+  - `components/AppShell.tsx`、`components/MarkdownEditor.tsx` 不再直接 import `next/*`。
+  - `npm run build:desktop-ui` 产出约 5.8MB 静态资产；新增 `lib/desktop-static-entry.test.mjs` 守护「入口存在、接缝唯一、产物不含服务端代码」。
+- **未做（需真实 Electron 环境验证）：** 受限自定义协议（`weclio://app`）、CSP/MIME、Renderer 加载静态资产、preload 与 IPC 校验随静态 origin 调整、以及聊天/历史/文件/预览/下载/设置/OAuth 的浏览器回归。**在完成这些之前，Desktop 仍走 Next 入口，不得声称「已不再启动 next start」。**
+- **依赖：** A3.3 已完成；Vite 依赖已获批并加入 devDependencies（vite 7、@vitejs/plugin-react 5）。
 
 ## 4. B2 — Local Agent Service 打包
 

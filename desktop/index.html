@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" translate="no" class="notranslate">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="google" content="notranslate" />
+    <title>weclio</title>
+    <script>
+      // 与 Next layout 一致的启动前主题/侧栏宽度恢复，避免静态入口首帧闪烁。
+      (function () {
+        try {
+          var d = document.documentElement, t = localStorage.getItem("pi-theme");
+          if (t === "dark") d.classList.add("dark");
+          var w = Number(localStorage.getItem("pi-web:sidebar-width"));
+          if (Number.isFinite(w) && w >= 240 && w <= 480) d.style.setProperty("--saved-sidebar-width", w + "px");
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body translate="no" class="notranslate" style="height: 100dvh; display: flex; flex-direction: column">
+    <div id="startup-splash" role="status" aria-label="正在启动 Weclio"></div>
+    <div id="startup-content" inert></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
