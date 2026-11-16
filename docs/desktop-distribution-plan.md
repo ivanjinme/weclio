@@ -18,6 +18,7 @@ Weclio
 - 三类产物分别构建部署，复用必要 Protocol/Client/组件与同一 Service 源码；**不是三个独立业务实现**。
 - **已确认：Desktop 使用 Vite 静态 React，Web 保留 Next。** Desktop 不携带/启动 Next Server，不为统一工具链迁移 Web。
 - Service 与 Pi 同一 Node 进程，独立于 Electron；**采用捆绑受支持 Node Runtime**，不是要求用户先安装 Node，也不以 Electron utilityProcess/IPC 另造 Agent 协议。
+- **硬约束：不得用 Electron 二进制（`ELECTRON_RUN_AS_NODE`）承载 Agent Service。** 独立性优先于包体积：同一份 Service 产物必须能被普通 Node 运行时启动，否则无法部署到 VM，违反「Service 不依赖 Electron」。Desktop 的 Local Service 用随包捆绑的 Runtime 启动；Remote 用镜像/系统 Node 启动，两者是同一产物。
 - Desktop/Web/Remote Service 可独立发布；内置 Local Service 初期随 Desktop 完整安装包更新并联合测试，**不新增 Local Service 第二条热更新链**。
 - 保留 Builder/NSIS、可靠的签名更新与用户数据语义；静态 UI origin 与 Service endpoint 分离，未来连接 Remote 不等于加载远端网页。
 - **本期只落实 Local 分发。** Remote VM/容器为未来架构方向，当前不部署真实环境、不建设 Remote 运维/升级体系；相关验证不阻塞本地主线。
@@ -68,11 +69,11 @@ Weclio
 
 - **模块/修改：** Runtime/tools acquisition、manifest/摘要/来源/license、`runtime/toolsets`、PATH 与能力诊断。
 - **具体工作：** 选择满足锁定 Pi/依赖的受支持 Node，固定版本/平台/架构/官方来源/摘要与补丁责任；绝对路径启动，不查系统 Node。包含匹配 npm/npx 及 shims，验证 SDK 包管理/Skills 安装的真实布局，不能只复制 `node.exe`。
-- **工具政策：** 明确 bundled 与用户 PATH 优先级，node/npm/npx 始终使用配套 Runtime；清除 Electron/Next 启动污染。Windows 核心能力包含 Git、可用 Bash/受支持 Shell、rg/fd；Git+Bash 工具集在 B2 核对再分发许可、供应链和体积，不能假定精简 Git 包自带完整 Bash。未来 Remote 按对应 OS 提供工具，不把构建 Linux 镜像变成本 PR 前置。
+- **工具政策（已定）：** node/npm/npx 始终使用随包 Runtime 并优先于用户 PATH，清除 Electron/Next 启动污染。**Git/Bash 由用户环境提供，不随安装包分发**；缺失时 shell/Git 能力如实报错，不使用 PowerShell 或精简 Git 冒充等价。rg/fd 仍随包提供。未来 Remote 按对应 OS 提供工具，不把构建 Linux 镜像变成本 PR 前置。
 - **分发范围：** 这里的“默认工具”指安装包携带 Node/npm、Git/Bash、rg/fd 等执行环境，不是新装一批 Plugins/Skills。Python/Pandoc/LibreOffice 等办公依赖不扩入本轮默认包；保留原有能力并如实诊断缺失，不新增“所有 Skills 开箱即用”承诺。
-- **依赖：** B2.1。具体 Node/tools 版本和体积在本阶段选定，不是 A1 前置决策；Node 捆绑是明确目标，Git/Bash 分发未解决不能声称完整开箱即用，不以 PowerShell fallback 冒充等价。
+- **依赖：** B2.1。具体 Node/tools 版本和体积在本阶段选定，不是 A1 前置决策；Node 捆绑是明确目标（见 §1 硬约束：Service 必须能被纯 Node 启动），Git/Bash 是否随包分发待产品决策，未分发则相应收窄验收措辞，不以 PowerShell fallback 冒充等价。
 - **风险/收益：** 无需用户预装 Node，能力更可预测；新增安装体积、安全更新和 NOTICE 责任。工具内容缓存复用也要明确完整性校验策略，不能只扩充文件而沿用仅检查 rg/fd 的假设。
-- **测试/验收：** 干净 Windows VM 无 Node/npm/Git/Pi/源码，非管理员、安装目录只读、空格/中文路径，离线首启可完成 Runtime/内置资源准备；模型联网后完成工具读写、Bash、Git status/diff、rg/fd、npm/npx/扩展子进程测试。离线首启不等于离线模型或可任意离线安装新包。
+- **测试/验收（已收窄）：** 干净 Windows VM 无 Node/npm/Git/Pi/源码，非管理员、安装目录只读、空格/中文路径，离线首启可完成 Runtime/内置资源准备；模型联网后完成 read/write/edit、rg/fd、npm/npx、动态扩展与子进程测试。**Bash/Git 不作为本包开箱能力**：无 Git 时必须以明确提示降级，不得声称完整 Coding Agent；有 Git 的机器另测 Bash 与 git status/diff。
 
 ## 5. B3 — Electron 生命周期与更新交接
 
