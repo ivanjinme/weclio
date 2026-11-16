@@ -44,7 +44,8 @@
     "lint": "eslint .",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
     "build:desktop-ui": "vite build",
-    "dev:desktop-ui": "vite --config vite.config.ts"
+    "dev:desktop-ui": "vite --config vite.config.ts",
+    "dev:service-ui": "node electron/dev-service-ui.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",

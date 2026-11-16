@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/api-bootstrap";
 import { useState, useReducer, useCallback, useRef, useEffect, useLayoutEffect } from "react";
 import { useRouter, useSearchParams } from "@/lib/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";

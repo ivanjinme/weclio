@@ -2,9 +2,10 @@ import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { AgentProtocolError } from "./protocol/validate";
-import type { AgentRuntime } from "../rpc-manager";
+import { autoNameRpcSession, type AgentRuntime } from "../rpc-manager";
 import {
   buildSessionContext,
+  getSessionEntries,
   invalidateSessionListCache,
   invalidateSessionPathCache,
   listAllSessions,
@@ -222,4 +223,48 @@ export async function readSessionRuntimeState(
   const session = runtime.getSession(id);
   if (!session?.isAlive()) return { running: false };
   return { running: true, state: await session.send({ type: "get_state" }) };
+}
+
+/** 会话上下文（重置 leaf 或延迟媒体/思考）：只读，不创建运行实例。 */
+export async function readSessionContext(
+  id: string,
+  options: { leafId?: string | null; deferThinking?: boolean; deferToolResultImages?: boolean } = {},
+) {
+  const filePath = await requireSessionPath(id);
+  const manager = SessionManager.open(filePath);
+  return buildSessionContext(manager.getEntries() as never, options.leafId ?? undefined, {
+    deferThinking: Boolean(options.deferThinking),
+    deferToolResultImages: Boolean(options.deferToolResultImages),
+  });
+}
+
+/** 延迟加载某条助手消息里的 thinking 块。 */
+export async function readThinkingBlock(id: string, entryId: string, blockIndex: unknown): Promise<string> {
+  const index = typeof blockIndex === "number" ? blockIndex : Number(blockIndex);
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new AgentProtocolError("invalid_argument", "Valid blockIndex is required");
+  }
+  const filePath = await requireSessionPath(id);
+  const entry = getSessionEntries(filePath).find((candidate) => candidate.id === entryId);
+  if (!entry || entry.type !== "message" || entry.message.role !== "assistant") {
+    throw new AgentProtocolError("not_found", "Assistant message not found");
+  }
+  const block = (entry.message.content as Array<{ type: string; thinking?: string }>)[index];
+  if (!block || block.type !== "thinking") throw new AgentProtocolError("not_found", "Thinking block not found");
+  return block.thinking ?? "";
+}
+
+/** 为会话生成标题；离线时启动一次运行实例后走同一命名逻辑。 */
+export async function autoNameSession(id: string, runtime: AgentRuntime) {
+  const filePath = await requireSessionPath(id);
+  const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
+  const existing = runtime.getSession(id);
+  const { session } = existing?.isAlive()
+    ? { session: existing }
+    : await runtime.startSession(id, filePath, cwd);
+  const result = await autoNameRpcSession(session);
+  if (!result) {
+    throw new AgentProtocolError("conflict", "The session was closed while its title was being generated. Please try again.");
+  }
+  return { title: result.title, usage: result.usage ?? null };
 }

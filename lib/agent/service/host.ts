@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, statSync, watch, writeFileSync, type Stats } from "node:fs";
 import { Readable } from "node:stream";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -45,6 +46,14 @@ import {
   saveApiKey,
 } from "../provider-auth-service";
 import { getCodexUsage } from "../../codex-usage";
+import {
+  MAX_INLINE_BASH_OUTPUT_BYTES,
+  openRegularFileNoFollow,
+  readUtf8FileWithinLimit,
+  resolveBashOutputPath,
+} from "../../bash-output";
+import { isBashOutputPathReferencedBySession } from "../../session-file-references";
+import { subscribeSessionListChanges } from "../../session-reader";
 import { listPlugins, mutatePlugins, type PluginMutationInput } from "../plugins-service";
 import { checkUpdates, installSkill, listSkills, searchSkills, setSkillModelInvocation, updateSkill } from "../skill-actions-service";
 import { openSessionEventStream, parseLastEventId } from "../session-events";
@@ -62,11 +71,14 @@ import {
   validateWorkspace,
 } from "../workspace-service";
 import {
+  autoNameSession,
   deleteSession,
   listSessionCatalog,
   listSessionTitles,
+  readSessionContext,
   readSessionRuntimeState,
   readSessionView,
+  readThinkingBlock,
   renameSession,
 } from "../session-service";
 import { AgentProtocolError, parseAgentCommand, type AgentProtocolErrorCode } from "../protocol/validate";
@@ -680,6 +692,92 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     if (method === "POST" && url.pathname === "/v1/sessions/titles") {
       const body = JSON.parse(await readBody(req)) as { ids?: unknown };
       sendJson(res, 200, { titles: await listSessionTitles(body.ids as string[]) }, requestId);
+      return;
+    }
+
+    // 运行态全局流：与 Next 侧同语义，先订阅后快照。
+    if (method === "GET" && url.pathname === "/v1/events") {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "x-accel-buffering": "no",
+        "x-request-id": requestId,
+      });
+      const write = (payload: unknown) => {
+        if (res.writableEnded) return;
+        res.write("data: " + JSON.stringify(payload) + "\n\n");
+      };
+      const unsubscribe = runtime.subscribeRunning((ids) => write({ type: "running", runningSessionIds: ids }));
+      const unsubscribeChanges = subscribeSessionListChanges(() => write({ type: "sessions_changed" }));
+      write({ type: "running", runningSessionIds: runtime.runningIds() });
+      const heartbeat = setInterval(() => { if (!res.writableEnded) res.write(":\n\n"); }, 30_000);
+      heartbeat.unref?.();
+      res.on("close", () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+        unsubscribeChanges();
+      });
+      return;
+    }
+
+    const contextRoute = /^\/v1\/sessions\/([^/]+)\/context$/.exec(url.pathname);
+    if (method === "GET" && contextRoute) {
+      sendJson(res, 200, {
+        context: await readSessionContext(decodeURIComponent(contextRoute[1]), {
+          leafId: url.searchParams.get("leafId"),
+          deferThinking: url.searchParams.has("deferThinking"),
+          deferToolResultImages: url.searchParams.has("deferMedia"),
+        }),
+      }, requestId);
+      return;
+    }
+
+    const thinkingRoute = /^\/v1\/sessions\/([^/]+)\/entries\/([^/]+)\/thinking$/.exec(url.pathname);
+    if (method === "GET" && thinkingRoute) {
+      sendJson(res, 200, {
+        thinking: await readThinkingBlock(
+          decodeURIComponent(thinkingRoute[1]),
+          decodeURIComponent(thinkingRoute[2]),
+          url.searchParams.get("blockIndex") ?? Number.NaN,
+        ),
+      }, requestId);
+      return;
+    }
+
+    const autoNameRoute = /^\/v1\/sessions\/([^/]+)\/auto-name$/.exec(url.pathname);
+    if (method === "POST" && autoNameRoute) {
+      sendJson(res, 200, await autoNameSession(decodeURIComponent(autoNameRoute[1]), runtime), requestId);
+      return;
+    }
+
+    const bashOutputRoute = /^\/v1\/sessions\/([^/]+)\/bash-output$/.exec(url.pathname);
+    if (method === "GET" && bashOutputRoute) {
+      const sessionId = decodeURIComponent(bashOutputRoute[1]);
+      const requested = url.searchParams.get("path");
+      if (!requested) throw new AgentProtocolError("invalid_argument", "path required");
+      const resolved = resolveBashOutputPath(requested, tmpdir());
+      if (!resolved) throw new AgentProtocolError("invalid_argument", "invalid path");
+      // 只有该会话记录过的输出文件可读。
+      if (!await isBashOutputPathReferencedBySession(resolved, sessionId)) {
+        throw new AgentProtocolError("forbidden", "forbidden");
+      }
+      if (url.searchParams.get("download") === "1") {
+        const { handle } = await openRegularFileNoFollow(resolved);
+        res.writeHead(200, {
+          "content-type": "text/plain; charset=utf-8",
+          "content-disposition": "attachment; filename=\"bash-output.log\"",
+          "cache-control": "no-store",
+          "x-request-id": requestId,
+        });
+        Readable.fromWeb(handle.createReadStream() as never).pipe(res);
+        return;
+      }
+      const result = await readUtf8FileWithinLimit(resolved);
+      if (result.tooLarge) {
+        throw new AgentProtocolError("payload_too_large", "Full output is too large to display (limit " + MAX_INLINE_BASH_OUTPUT_BYTES + " bytes)");
+      }
+      sendJson(res, 200, { success: true, data: { output: result.content } }, requestId);
       return;
     }
 
