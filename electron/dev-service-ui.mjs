@@ -45,6 +45,9 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // Service 用系统 Node 跑 TS 源码（B2 之前不打包 Runtime）。
+// 默认共享 ~/.pi/agent（会话与模型凭据）；WECLIO_DEV_AGENT_DIR 可切到隔离目录。
+const agentDir = process.env.WECLIO_DEV_AGENT_DIR;
+
 const service = run("service", process.execPath, [
   "--import", pathToFileURL(jiti).href, "--eval",
   `const { createJiti } = await import(${JSON.stringify(pathToFileURL(jiti).href)});
@@ -57,6 +60,7 @@ const service = run("service", process.execPath, [
   WECLIO_AGENT_ALLOWED_ORIGINS: `http://127.0.0.1:${UI_PORT}`,
   WECLIO_AGENT_STATE_DIR: join(root, "build/dev-service-state"),
   WECLIO_AGENT_WORKSPACE: join(root, "build/dev-service-workspace"),
+  ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
 });
 
 service.once("exit", () => {

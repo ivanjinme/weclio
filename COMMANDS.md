@@ -8,7 +8,12 @@ Repo root · Bash / Git Bash · stop on failure.
 npm run dev           # Desktop (default)
 npm run dev:desktop   # Desktop
 npm run dev:web       # Web
+npm run dev:service-ui # 浏览器验证：独立 Agent Service（系统 Node）+ 指向它的 Next UI
 ```
+
+`dev:service-ui` 只是一个开发用的接线脚本；Service 与 UI 同机不同端口，令牌由脚本从
+Service 的 stateDir 读出后注入 UI 进程。共享 `~/.pi/agent`（会话与凭据）；若需隔离，
+启动前设 `WECLIO_DEV_AGENT_DIR=<绝对路径>`。
 
 ## Checks
 
@@ -16,6 +21,12 @@ npm run dev:web       # Web
 node --test electron/*.test.mjs
 node_modules/.bin/tsc --noEmit
 npm run lint
+```
+
+跑全量测试要限制并发，否则 4 个拉起子进程的用例会超时：
+
+```bash
+node --test --test-concurrency=4 lib/*.test.mjs ...
 ```
 
 ## Publish Web UI (npm)

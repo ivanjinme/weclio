@@ -115,6 +115,32 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 
 客户端通过 `basePath` 切换（`/api` → `/v1`），不改调用点。
 
+### 4.1 客户端实际使用的端点（P1）
+
+| 用途 | Next 宿主 | Service 宿主 |
+| --- | --- | --- |
+| 命令 | `POST /api/agent/:id` | `POST /v1/sessions/:id/commands` |
+| 会话事件 | `GET /api/agent/:id/events` | `GET /v1/sessions/:id/events?cwd=` |
+| 运行态全局流 | `GET /api/agent/running/events` | `GET /v1/events` |
+| 会话状态 | `GET /api/sessions/:id/state` | `GET /v1/sessions/:id/state` |
+| 上下文 | `GET /api/sessions/:id/context` | `GET /v1/sessions/:id/context` |
+| 延迟思考块 | `GET /api/sessions/:id/entries/:entryId/thinking` | 同形 `/v1/...` |
+| 自动命名 | `POST /api/sessions/:id/auto-name` | `POST /v1/sessions/:id/auto-name` |
+| bash 输出 | `GET /api/agent/:id/bash-output` | `GET /v1/sessions/:id/bash-output` |
+
+路由由 `lib/agent/routes.ts` 按基址推导：`/v1` 前缀即 Service 宿主，其余保持历史路径。
+
+### 4.2 跨源与凭据
+
+- Service 对 `WECLIO_AGENT_ALLOWED_ORIGINS` 中的源应答 CORS 预检（`OPTIONS` 204），
+  允许 `authorization`、`content-type`、`last-event-id` 请求头。
+- 浏览器客户端一律用内存 Bearer：`lib/agent-credential.ts` 持有令牌，
+  `apiFetch` / `createEventStream` 负责附加。**不使用 Cookie**：
+  `weclio://app` 访问 `http://127.0.0.1` 属跨站，`SameSite=None` 又要求 HTTPS，
+  静态入口注定拿不到 Cookie。
+- 因为 `EventSource` 不能自定义请求头，SSE 改由 `lib/event-stream.ts` 以 fetch 流读取；
+  断线重连策略仍由调用方决定，服务端据 `Last-Event-ID` 置 `connected.resync`。
+
 ## 5. 会话事件流
 
 `GET /v1/sessions/:id/events`（Next 侧为 `GET /api/agent/:id/events`）由 `lib/agent/session-events` 统一实现，两条宿主共用：
@@ -146,6 +172,8 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 - 认证走 `headers()` 每次解析，长期凭据不得进入 URL 或日志。
 - 支持 `AbortSignal`；中止错误原样抛出，不包装成协议错误。
 - 网络失败转为 `http_error`，保留 `cause`。
+- 组件不得直接 `fetch(apiUrl(...))` 或 `new EventSource(...)`：分别走 `apiFetch` 与
+  `createEventStream`，否则连到 Service 时会缺令牌。`lib/agent/api-migration.test.mjs` 会拦住回退。
 
 ## 9. 身份与数据归属
 

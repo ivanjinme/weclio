@@ -63,6 +63,17 @@ Weclio
 | 阶段 | 内容 | 退出条件 |
 | --- | --- | --- |
 | **P1** | 客户端双路由表（`lib/agent/routes.ts`）+ dev 脚本起独立 Service + 浏览器实跑 | 同一 UI 连两种宿主行为一致；SSE 重连/文件/预览/下载/设置可用 |
+**P1 状态（已完成客户端侧，待人工浏览器回归）：**
+
+- 双路由表 `lib/agent/routes.ts`；`/v1` 即 Service 宿主。
+- Service 侧补齐 `context`、`thinking`、`auto-name`、`bash-output`、`/v1/events`。
+- 凭据：内存 Bearer（`lib/agent-credential.ts`）+ `apiFetch` 单一出口 + fetch 流式 SSE
+  （`lib/event-stream.ts`）。不用 Cookie，因为在 `weclio://app → http loopback` 下必然失效。
+- Service 对白名单源应答 CORS 预检。
+- 已用 CLI 实测：`/healthz` 200、无令牌 401、带令牌 `/v1/info` 200、预检 204 +
+  `access-control-allow-origin`、`/v1/events` 首帧 `running`、`/v1/sessions` 带 CORS 头。
+- 待人工确认：`npm run dev:service-ui` 下的聊天、SSE 重连、历史、文件树、预览、下载、设置。
+
 | **P2** | 退役 Web 进程内 Agent（Next 只留 UI） | Web 内 `import rpc-manager` = 0；`next start` 只提供 UI |
 | **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 |
 | **P4** | 捆绑 Runtime（原 B2） | 干净 Windows 无 Node 可跑；VM 用系统 Node 跑同一产物 |
