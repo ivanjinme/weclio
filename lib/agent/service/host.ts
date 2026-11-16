@@ -46,6 +46,7 @@ import {
 } from "../provider-auth-service";
 import { getCodexUsage } from "../../codex-usage";
 import { listPlugins, mutatePlugins, type PluginMutationInput } from "../plugins-service";
+import { checkUpdates, installSkill, listSkills, searchSkills, setSkillModelInvocation, updateSkill } from "../skill-actions-service";
 import { openSessionEventStream, parseLastEventId } from "../session-events";
 import type { OAuthClientEvent } from "../oauth-login-service";
 import { createOAuthLoginManager } from "../oauth-login-service";
@@ -557,6 +558,41 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     const providerModels = /^\/v1\/settings\/models\/providers\/([^/]+)$/.exec(url.pathname);
     if (method === "GET" && providerModels) {
       sendJson(res, 200, await refreshProviderModels(decodeURIComponent(providerModels[1])), requestId);
+      return;
+    }
+
+    if (url.pathname === "/v1/skills") {
+      if (method === "GET") {
+        sendJson(res, 200, await listSkills({
+          cwd: url.searchParams.get("cwd"),
+          globalOnly: url.searchParams.get("global") === "true",
+        }), requestId);
+        return;
+      }
+      if (method === "PATCH") {
+        await setSkillModelInvocation(JSON.parse(await readBody(req)));
+        sendJson(res, 200, { success: true }, requestId);
+        return;
+      }
+    }
+
+    if (method === "POST" && url.pathname === "/v1/skills/check") {
+      sendJson(res, 200, await checkUpdates(JSON.parse(await readBody(req))), requestId);
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/v1/skills/search") {
+      sendJson(res, 200, await searchSkills(JSON.parse(await readBody(req))), requestId);
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/v1/skills/install") {
+      sendJson(res, 200, await installSkill(JSON.parse(await readBody(req)), () => runtime.reserveTask()), requestId);
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/v1/skills/update") {
+      sendJson(res, 200, await updateSkill(JSON.parse(await readBody(req)), () => runtime.reserveTask()), requestId);
       return;
     }
 

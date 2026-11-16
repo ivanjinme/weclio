@@ -85,6 +85,12 @@ POST   /v1/provider-auth/login/:p        { token, code } → 回填授权码或�
 GET    /v1/settings/models/providers/:p  联网刷新 provider 模型
 GET    /v1/plugins?cwd=&global=          资源包列表（项目级受 trust 门控）
 POST   /v1/plugins                       { action: install|remove|update|disable|enable, source, scope, cwd }
+GET    /v1/skills?cwd=&global=           skill 列表
+PATCH  /v1/skills                        { filePath, disableModelInvocation }
+POST   /v1/skills/check                  { cwd, package, scope } → 可用更新
+POST   /v1/skills/install                { package, scope, cwd } → npx 安装（占准入）
+POST   /v1/skills/update                 { cwd, package, scope } → 更新（占准入）
+POST   /v1/skills/search                 { query, limit } → 远端搜索
 GET    /v1/usage/codex                   Codex 用量
 GET    /v1/models?cwd=                   模型列表（受项目信任门控）
 GET    /v1/settings/models               models.json 读取

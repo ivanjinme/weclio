@@ -1,8 +1,8 @@
 import { homedir } from "os";
 import { DefaultResourceLoader, getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
-import type { SkillInfo, SkillsResponse } from "@/lib/api-types";
-import { annotateSkillsWithInstallInfo } from "@/lib/skill-lock";
-import { getProjectTrustStatus, projectTrustReloadOptions } from "@/lib/project-trust";
+import type { SkillInfo, SkillsResponse } from "./api-types";
+import { annotateSkillsWithInstallInfo } from "./skill-lock";
+import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 
 export async function loadSkillsWithInstallInfo(cwd?: string): Promise<SkillsResponse> {
   const agentDir = getAgentDir();
