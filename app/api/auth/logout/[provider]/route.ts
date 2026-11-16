@@ -1,18 +1,18 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { invalidateModelsCache } from "@/lib/models-cache";
+import { NextResponse } from "next/server";
+import { logoutProvider } from "@/lib/agent/provider-auth-service";
+import { protocolErrorResponse } from "@/lib/agent/next-error-response";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(
   _req: Request,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ) {
-  const { provider } = await params;
-  const modelRuntime = await ModelRuntime.create();
-  if (!modelRuntime.getProvider(provider)?.auth.oauth) {
-    return Response.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
+  try {
+    const { provider } = await params;
+    await logoutProvider(provider);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return protocolErrorResponse(error);
   }
-  await modelRuntime.logout(provider);
-  invalidateModelsCache();
-  return Response.json({ ok: true });
 }

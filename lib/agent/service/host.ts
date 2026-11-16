@@ -36,6 +36,16 @@ import {
 import { gitDiff, gitStatus } from "../git-service";
 import { listModels, readModelsConfig, setDefaultModel, testModel, writeModelsConfig } from "../settings-service";
 import {
+  deleteApiKey,
+  getApiKeyStatus,
+  listApiKeyProviders,
+  listOAuthProviders,
+  logoutProvider,
+  refreshProviderModels,
+  saveApiKey,
+} from "../provider-auth-service";
+import { getCodexUsage } from "../../codex-usage";
+import {
   browseWorkspace,
   ensureWorkspace,
   getHomeDirectory,
@@ -471,6 +481,54 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     if (method === "POST" && url.pathname === "/v1/projects/rebind") {
       const body = JSON.parse(await readBody(req)) as { oldRoot?: unknown; newRoot?: unknown };
       sendJson(res, 200, await rebindProject(body, runtime), requestId);
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/v1/provider-auth/oauth") {
+      sendJson(res, 200, await listOAuthProviders(), requestId);
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/v1/provider-auth/providers") {
+      sendJson(res, 200, await listApiKeyProviders(), requestId);
+      return;
+    }
+
+    const apiKeyProvider = /^\/v1\/provider-auth\/api-key\/([^/]+)$/.exec(url.pathname);
+    if (apiKeyProvider) {
+      const provider = decodeURIComponent(apiKeyProvider[1]);
+      if (method === "GET") {
+        sendJson(res, 200, await getApiKeyStatus(provider), requestId);
+        return;
+      }
+      if (method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { apiKey?: unknown };
+        await saveApiKey(provider, body.apiKey);
+        sendJson(res, 200, { success: true }, requestId);
+        return;
+      }
+      if (method === "DELETE") {
+        await deleteApiKey(provider);
+        sendJson(res, 200, { success: true }, requestId);
+        return;
+      }
+    }
+
+    const providerLogout = /^\/v1\/provider-auth\/logout\/([^/]+)$/.exec(url.pathname);
+    if (method === "POST" && providerLogout) {
+      await logoutProvider(decodeURIComponent(providerLogout[1]));
+      sendJson(res, 200, { ok: true }, requestId);
+      return;
+    }
+
+    const providerModels = /^\/v1\/settings\/models\/providers\/([^/]+)$/.exec(url.pathname);
+    if (method === "GET" && providerModels) {
+      sendJson(res, 200, await refreshProviderModels(decodeURIComponent(providerModels[1])), requestId);
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/v1/usage/codex") {
+      sendJson(res, 200, await getCodexUsage(), requestId);
       return;
     }
 

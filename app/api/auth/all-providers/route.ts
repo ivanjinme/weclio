@@ -1,40 +1,14 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { NextResponse } from "next/server";
+import { listApiKeyProviders } from "@/lib/agent/provider-auth-service";
+import { protocolErrorResponse } from "@/lib/agent/next-error-response";
 
 export const dynamic = "force-dynamic";
 
-// Providers that use OAuth — handled separately via /api/auth/providers
-const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
-
+// 走 OAuth 的 provider 由 /api/auth/providers 单独处理。
 export async function GET() {
-  const modelRuntime = await ModelRuntime.create();
-  const all = modelRuntime.getModels();
-
-  // Deduplicate by provider, skip OAuth-only providers and custom providers (source=models_json_key)
-  const seen = new Set<string>();
-  const result: {
-    id: string;
-    displayName: string;
-    configured: boolean;
-    source?: string;
-    modelCount: number;
-  }[] = [];
-
-  for (const provider of modelRuntime.getProviders()) {
-    if (seen.has(provider.id)) continue;
-    seen.add(provider.id);
-    if (OAUTH_PROVIDER_IDS.has(provider.id) || !provider.auth.apiKey?.login) continue;
-    const status = modelRuntime.getProviderAuthStatus(provider.id);
-    // Skip providers whose key comes from models.json (those are custom providers)
-    if (status.source === "models_json_key") continue;
-    const modelCount = all.filter((model) => model.provider === provider.id).length;
-    result.push({
-      id: provider.id,
-      displayName: provider.name,
-      configured: status.configured,
-      source: status.source,
-      modelCount,
-    });
+  try {
+    return NextResponse.json(await listApiKeyProviders());
+  } catch (error) {
+    return protocolErrorResponse(error);
   }
-
-  return Response.json({ providers: result });
 }

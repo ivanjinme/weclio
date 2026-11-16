@@ -13,7 +13,8 @@ export type AgentProtocolErrorCode =
   | "payload_too_large"
   | "not_found"
   | "forbidden"
-  | "conflict";
+  | "conflict"
+  | "bad_gateway";
 
 // 统一的客户端可见错误：code 供程序判断，message 供展示，requestId 供日志关联。
 export class AgentProtocolError extends Error {
@@ -40,7 +41,7 @@ const TOOL_PRESETS = new Set<ToolPreset>(["none", "default", "full"]);
 
 const ERROR_CODES = new Set<AgentProtocolErrorCode>([
   "invalid_command", "invalid_argument", "invalid_response", "session_not_found", "command_failed",
-  "http_error", "unauthorized", "forbidden_origin", "payload_too_large", "not_found", "forbidden", "conflict",
+  "http_error", "unauthorized", "forbidden_origin", "payload_too_large", "not_found", "forbidden", "conflict", "bad_gateway",
 ]);
 
 export function isAgentProtocolErrorCode(value: unknown): value is AgentProtocolErrorCode {

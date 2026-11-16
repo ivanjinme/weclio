@@ -18,6 +18,8 @@ export function statusForProtocolCode(code: AgentProtocolErrorCode): number {
       return 409;
     case "payload_too_large":
       return 413;
+    case "bad_gateway":
+      return 502;
     default:
       return 500;
   }
