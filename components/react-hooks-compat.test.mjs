@@ -191,6 +191,7 @@ test("agent extension and queue callbacks use the latest editor handle without r
   let resolveQueue;
   const { useAgentSession } = await loader(hooks, {
     "@/lib/agent-client": {
+      getDefaultAgentClient: () => ({ routes: { events: (id) => "/api/agent/" + id + "/events", runningEvents: () => "/api/agent/running/events", commands: (id) => "/api/agent/" + id, state: (id) => "/api/sessions/" + id + "/state" } }),
       sendAgentCommand(_sid, command) {
         if (command.type === "clear_queue") return new Promise((resolve) => { resolveQueue = resolve; });
         return Promise.resolve(null);

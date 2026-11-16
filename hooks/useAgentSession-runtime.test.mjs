@@ -37,6 +37,7 @@ test("autocomplete-created drafts preserve thinking through first send and subse
     virtualModules: {
       react: hooks.react,
       "@/lib/agent-client": {
+        getDefaultAgentClient: () => ({ routes: { events: (id) => "/api/agent/" + id + "/events", runningEvents: () => "/api/agent/running/events", commands: (id) => "/api/agent/" + id, state: (id) => "/api/sessions/" + id + "/state" } }),
         async sendAgentCommand(_sid, command) {
           commands.push(command);
           // SDK setModel() 会重新应用保存的默认推理档位。
@@ -102,6 +103,7 @@ test("all send paths carry skill parts without treating tagged input as a shell 
     virtualModules: {
       react: hooks.react,
       "@/lib/agent-client": {
+        getDefaultAgentClient: () => ({ routes: { events: (id) => "/api/agent/" + id + "/events", runningEvents: () => "/api/agent/running/events", commands: (id) => "/api/agent/" + id, state: (id) => "/api/sessions/" + id + "/state" } }),
         async sendAgentCommand(_sid, command) { commands.push(command); return null; },
       },
     },

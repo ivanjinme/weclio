@@ -56,6 +56,21 @@ Weclio
 - **仍未接线：** `main.mjs` 依旧 `loadURL(SERVER_URL)` 走 Next；要把窗口切到 `weclio://app/index.html` 需要一次性完成「协议注册 + 静态目录布局 + Service 白名单下发 + 回归」，否则窗口会加载成功但连不上 Agent。**在切换之前，Desktop 仍启动 `next start`，验收未达成。**
 - **依赖：** A3.3 已完成；Vite 依赖已获批并加入 devDependencies（vite 7、@vitejs/plugin-react 5）。
 
+## 3. 执行顺序修订（2026-11，取代原 B1→B2 顺序）
+
+原计划先做静态托管再打包，实测发现真正未验证的是**「客户端 ↔ 独立 Agent Service」这条链路**。改为先用最便宜的方式证明边界，再往上堆宿主与分发：
+
+| 阶段 | 内容 | 退出条件 |
+| --- | --- | --- |
+| **P1** | 客户端双路由表（`lib/agent/routes.ts`）+ dev 脚本起独立 Service + 浏览器实跑 | 同一 UI 连两种宿主行为一致；SSE 重连/文件/预览/下载/设置可用 |
+| **P2** | 退役 Web 进程内 Agent（Next 只留 UI） | Web 内 `import rpc-manager` = 0；`next start` 只提供 UI |
+| **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 |
+| **P4** | 捆绑 Runtime（原 B2） | 干净 Windows 无 Node 可跑；VM 用系统 Node 跑同一产物 |
+| **P5** | 生命周期与更新门禁（原 B3） | 忙任务不被静默终止；更新失败可恢复 |
+| **P6** | 三产物构建 + 原子切换 + 发行（原 B4/B5） | 安装包无 Next Server；真实 A→B 升级不丢数据 |
+
+**纪律：** P1 通过前冻结进一步的服务抽取与宿主层打磨；不新增运行时开关或第二套 fallback。
+
 ## 4. B2 — Local Agent Service 打包
 
 ### PR B2.1 — 独立生产闭包与 staging 组装

@@ -3,9 +3,12 @@
 
 import type { AgentCommand, AgentCommandResult } from "./agent/protocol/commands";
 import { getApiBase } from "./api-base";
+import { routesForBase, type HostRoutes } from "./agent/routes";
 import { AgentProtocolError, isAgentProtocolErrorCode } from "./agent/protocol/validate";
 
 export interface AgentClientOptions {
+  /** 覆盖宿主路由表；默认按 basePath 推断。 */
+  routes?: HostRoutes;
   /** Service 源，例如 https://vm:8443；留空表示同源。 */
   baseUrl?: string;
   /** 路由前缀：当前是 /api，独立 Service 使用 /v1。 */
@@ -21,6 +24,8 @@ export interface AgentCommandOptions {
 }
 
 export interface AgentClient {
+  /** 当前生效的宿主路由（事件流等直接取 URL 的调用点使用）。 */
+  readonly routes: HostRoutes;
   sendCommand<C extends AgentCommand>(
     sessionId: string,
     command: C,
@@ -75,14 +80,17 @@ export function createAgentClient(options: AgentClientOptions = {}): AgentClient
   const configured = getApiBase();
   const baseUrl = (options.baseUrl ?? configured.baseUrl).replace(/\/+$/, "");
   const basePath = options.basePath ?? configured.basePath;
+  // 命令、事件与状态 URL 由宿主决定，调用点不需要知道当前连的是谁。
+  const routes: HostRoutes = options.routes ?? routesForBase({ baseUrl, basePath });
   const doFetch = options.fetch ?? ((...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args));
 
   return {
+    routes,
     async sendCommand(sessionId, command, commandOptions) {
       const headers = { ...(await options.headers?.()), "Content-Type": "application/json" };
       let response: Response;
       try {
-        response = await doFetch(`${baseUrl}${basePath}/agent/${encodeURIComponent(sessionId)}`, {
+        response = await doFetch(routes.commands(sessionId), {
           method: "POST",
           headers,
           body: JSON.stringify(command),
@@ -103,12 +111,21 @@ export function createAgentClient(options: AgentClientOptions = {}): AgentClient
   };
 }
 
-export const defaultAgentClient = createAgentClient();
+let defaultClient: { baseUrl: string; basePath: string; client: AgentClient } | undefined;
+
+/** 默认 Client 跟随当前 API 基址；基址变化后自动重建（含宿主路由）。 */
+export function getDefaultAgentClient(): AgentClient {
+  const base = getApiBase();
+  if (!defaultClient || defaultClient.baseUrl !== base.baseUrl || defaultClient.basePath !== base.basePath) {
+    defaultClient = { ...base, client: createAgentClient(base) };
+  }
+  return defaultClient.client;
+}
 
 export function sendAgentCommand<C extends AgentCommand>(
   sessionId: string,
   command: C,
   options?: AgentCommandOptions,
 ): Promise<AgentCommandResult<C>> {
-  return defaultAgentClient.sendCommand(sessionId, command, options);
+  return getDefaultAgentClient().sendCommand(sessionId, command, options);
 }

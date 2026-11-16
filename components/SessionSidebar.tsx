@@ -27,6 +27,7 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { apiUrl } from "@/lib/api-base";
+import { getDefaultAgentClient } from "@/lib/agent-client";
 
 declare global {
   interface Window {
@@ -646,7 +647,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     // Live running status via SSE — no polling. The server pushes the current
     // set of running session ids whenever any session starts/stops working.
-    const source = new EventSource(apiUrl("/agent/running/events"));
+    const source = new EventSource(getDefaultAgentClient().routes.runningEvents());
 
     source.onmessage = (e) => {
       try {

@@ -12,7 +12,7 @@ import type {
   UserMessage,
 } from "@/lib/types";
 import { normalizeToolCalls } from "@/lib/normalize";
-import { sendAgentCommand } from "@/lib/agent-client";
+import { getDefaultAgentClient, sendAgentCommand } from "@/lib/agent-client";
 import { resolveThinkingLevel } from "@/lib/thinking-level";
 import type { CompactCommandResult, QueuedMessages, SlashCommandInfo } from "@/lib/agent/protocol/commands";
 import type { ComposerPart } from "@/lib/composer";
@@ -467,7 +467,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    const es = new EventSource(apiUrl(`/agent/${encodeURIComponent(sid)}/events`));
+    const es = new EventSource(getDefaultAgentClient().routes.events(sid));
     eventSourceRef.current = es;
 
     return new Promise((resolve) => {
