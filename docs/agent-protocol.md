@@ -83,6 +83,8 @@ POST   /v1/provider-auth/logout/:p       登出 OAuth provider
 GET    /v1/provider-auth/login/:p        OAuth 登录 SSE（auth/device_code/select/prompt/progress/success|cancelled|error）
 POST   /v1/provider-auth/login/:p        { token, code } → 回填授权码或跳转 URL
 GET    /v1/settings/models/providers/:p  联网刷新 provider 模型
+GET    /v1/plugins?cwd=&global=          资源包列表（项目级受 trust 门控）
+POST   /v1/plugins                       { action: install|remove|update|disable|enable, source, scope, cwd }
 GET    /v1/usage/codex                   Codex 用量
 GET    /v1/models?cwd=                   模型列表（受项目信任门控）
 GET    /v1/settings/models               models.json 读取

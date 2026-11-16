@@ -45,6 +45,7 @@ import {
   saveApiKey,
 } from "../provider-auth-service";
 import { getCodexUsage } from "../../codex-usage";
+import { listPlugins, mutatePlugins, type PluginMutationInput } from "../plugins-service";
 import { openSessionEventStream, parseLastEventId } from "../session-events";
 import type { OAuthClientEvent } from "../oauth-login-service";
 import { createOAuthLoginManager } from "../oauth-login-service";
@@ -557,6 +558,20 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     if (method === "GET" && providerModels) {
       sendJson(res, 200, await refreshProviderModels(decodeURIComponent(providerModels[1])), requestId);
       return;
+    }
+
+    if (url.pathname === "/v1/plugins") {
+      if (method === "GET") {
+        sendJson(res, 200, await listPlugins({
+          cwd: url.searchParams.get("cwd"),
+          globalOnly: url.searchParams.get("global") === "true",
+        }), requestId);
+        return;
+      }
+      if (method === "POST") {
+        sendJson(res, 200, await mutatePlugins(JSON.parse(await readBody(req)) as PluginMutationInput), requestId);
+        return;
+      }
     }
 
     if (method === "GET" && url.pathname === "/v1/usage/codex") {
