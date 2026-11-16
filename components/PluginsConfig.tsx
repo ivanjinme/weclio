@@ -5,6 +5,7 @@ import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
+import { apiUrl } from "@/lib/api-base";
 
 type PluginScope = PluginPackageInfo["scope"];
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
@@ -609,7 +610,7 @@ export function PluginsConfig({ cwd, sessionId, onReloaded }: PluginsConfigProps
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(cwd ? `/api/plugins?cwd=${encodeURIComponent(cwd)}` : "/api/plugins?global=true");
+      const res = await fetch(apiUrl(cwd ? `/plugins?cwd=${encodeURIComponent(cwd)}` : "/plugins?global=true"));
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
@@ -635,7 +636,7 @@ export function PluginsConfig({ cwd, sessionId, onReloaded }: PluginsConfigProps
     setActionError(null);
     setActionMessage(null);
     try {
-      const res = await fetch("/api/plugins", {
+      const res = await fetch(apiUrl("/plugins"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, source: pkg.source, scope: pkg.scope, cwd }),
@@ -671,7 +672,7 @@ export function PluginsConfig({ cwd, sessionId, onReloaded }: PluginsConfigProps
     setActionError(null);
     setActionMessage(null);
     try {
-      const res = await fetch("/api/plugins", {
+      const res = await fetch(apiUrl("/plugins"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "install", source, scope: installScope, cwd }),

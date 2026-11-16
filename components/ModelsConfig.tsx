@@ -35,6 +35,7 @@ import NvidiaColorIcon from "@lobehub/icons/es/Nvidia/components/Color.js";
 import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Mono.js";
 import XiaomiMiMoIcon from "@lobehub/icons/es/XiaomiMiMo/components/Mono.js";
 import ZAIIcon from "@lobehub/icons/es/ZAI/components/Mono.js";
+import { apiUrl } from "@/lib/api-base";
 
 type IconComponent = React.ComponentType<{ size?: number | string; style?: React.CSSProperties }>;
 
@@ -559,7 +560,7 @@ function ModelDetail({
     if (!model.id.trim() || testState.phase === "testing") return;
     setTestState({ phase: "testing" });
     try {
-      const res = await fetch("/api/models-config/test", {
+      const res = await fetch(apiUrl("/models-config/test"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ providerName, provider, model }),
@@ -745,7 +746,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     setLoginState({ phase: "connecting" });
     setInputValue("");
 
-    const es = new EventSource(`/api/auth/login/${encodeURIComponent(provider.id)}`);
+    const es = new EventSource(apiUrl(`/auth/login/${encodeURIComponent(provider.id)}`));
     eventSourceRef.current = es;
 
     es.onmessage = (e) => {
@@ -796,7 +797,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   }, [provider.id, onRefresh, t]);
 
   const handleLogout = useCallback(async () => {
-    await fetch(`/api/auth/logout/${encodeURIComponent(provider.id)}`, { method: "POST" });
+    await fetch(apiUrl(`/auth/logout/${encodeURIComponent(provider.id)}`), { method: "POST" });
     setLoginState({ phase: "idle" });
     onRefresh();
   }, [provider.id, onRefresh]);
@@ -805,7 +806,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     if (!code.trim()) return;
     setLoginState({ phase: "progress", message: "Verifying…" });
     try {
-      const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
+      const res = await fetch(apiUrl(`/auth/login/${encodeURIComponent(provider.id)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, code: code.trim() }),
@@ -825,7 +826,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const submitSelection = useCallback(async (token: string, value: string) => {
     setLoginState({ phase: "progress", message: "Continuing…" });
     try {
-      const res = await fetch(`/api/auth/login/${encodeURIComponent(provider.id)}`, {
+      const res = await fetch(apiUrl(`/auth/login/${encodeURIComponent(provider.id)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, code: value }),
@@ -1005,7 +1006,7 @@ function ApiKeyDetail({ provider, imported, onImport, onRefresh }: {
     setError(null);
     setSavedOk(false);
     try {
-      const res = await fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, {
+      const res = await fetch(apiUrl(`/auth/api-key/${encodeURIComponent(provider.id)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey: apiKey.trim() }),
@@ -1043,7 +1044,7 @@ function ApiKeyDetail({ provider, imported, onImport, onRefresh }: {
     setRemoving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/auth/api-key/${encodeURIComponent(provider.id)}`, { method: "DELETE" });
+      const res = await fetch(apiUrl(`/auth/api-key/${encodeURIComponent(provider.id)}`), { method: "DELETE" });
       const d = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || d.error) setError(d.error ?? `HTTP ${res.status}`);
       else onRefresh();
@@ -1327,14 +1328,14 @@ export function ModelsConfig() {
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const loadOAuthProviders = useCallback(() => {
-    fetch("/api/auth/providers")
+    fetch(apiUrl("/auth/providers"))
       .then((r) => r.json())
       .then((d: { providers: OAuthProvider[] }) => setOauthProviders(d.providers))
       .catch(() => {});
   }, []);
 
   const loadApiKeyProviders = useCallback(() => {
-    fetch("/api/auth/all-providers")
+    fetch(apiUrl("/auth/all-providers"))
       .then((r) => r.json())
       .then((d: { providers: ApiKeyProvider[] }) => setApiKeyProviders(d.providers))
       .catch(() => {});
@@ -1344,7 +1345,7 @@ export function ModelsConfig() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/models-config");
+      const res = await fetch(apiUrl("/models-config"));
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -1380,7 +1381,7 @@ export function ModelsConfig() {
   }, []);
 
   const importProvider = useCallback(async (providerId: string) => {
-    const res = await fetch(`/api/models-config/providers/${encodeURIComponent(providerId)}`);
+    const res = await fetch(apiUrl(`/models-config/providers/${encodeURIComponent(providerId)}`));
     const data = await res.json() as { provider?: ProviderEntry; error?: string };
     if (!res.ok || !data.provider) throw new Error(data.error ?? `HTTP ${res.status}`);
     const template = data.provider;
@@ -1466,7 +1467,7 @@ export function ModelsConfig() {
 
     setSaving(true);
     try {
-      const res = await fetch("/api/models-config", {
+      const res = await fetch(apiUrl("/models-config"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),

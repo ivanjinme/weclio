@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2/3、A3.2、A5 已实施；A3.3 仅完成接缝（UI 迁移未做）；B 线未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A 线全部实施完成（A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2/3、A3.2、A3.3、A5）；A4 延期；B 线未实施（B1 已获批准可开工）。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -107,11 +107,12 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 - **测试：** `lib/agent/session-events.test.mjs`（9 项：订阅先于快照、快照去重、缓冲顺序、seq 单调、resync、噪声过滤、close 幂等、心跳启停、Last-Event-ID 解析）；Service smoke 覆盖真实 SSE（connected/seq/resync/401）；Next 路由测试改为断言委托与断开清理。
 - **未做：** 有界事件 replay 与持久事件日志仍属延期项；OAuth 登录的 SSE 归 A2.2c-3。
 
-### PR A3.3 — 完整 Agent Client（接缝已实施，UI 迁移未做）
+### PR A3.3 — 完整 Agent Client（已实施）
 
-- **已完成（本轮）：** 新增 `lib/api-base.ts`（`apiUrl`/`configureApiBase`/`resetApiBase`，默认同源 `/api`，行为与拆分前一致）；`createAgentClient()` 未显式传参时跟随该基址；`lib/agent/api-migration.test.mjs` 记录仍直接写死 `/api` 的前端调用点清单（16 个文件、共 66 处），新增直接调用会让测试失败，避免迁移被遗忘。
-- **未做（需要单独一轮）：** 把清单里的 66 处调用改为 `apiUrl()`/Agent Client（含 EventSource、img/iframe/download/export 资源 URL），以及多环境命名空间与草稿隔离。这部分改动面覆盖聊天、侧栏、文件、设置等主要 UI，必须在真实浏览器里回归，不能只靠源码断言。
-- **放行条件：** 清单清零 + 双 origin 手工回归（聊天/历史/树/文件/预览/下载/设置/OAuth）通过后，才能把 Desktop 静态入口与 Remote 连接视为可用。
+- **模块/修改：** 新增 `lib/api-base.ts`（`apiUrl`/`configureApiBase`/`resetApiBase`，默认同源 `/api`）；`createAgentClient()` 未显式传参时跟随该基址；**16 个 UI 文件、66 处**直接写死的 `/api` 调用（fetch、EventSource、图片/下载/预览 URL）全部改走 `apiUrl()`。
+- **测试：** `lib/api-base.test.mjs` 覆盖默认同源、远端拼接、绝对 URL 透传与非法前缀；`lib/agent/api-migration.test.mjs` 断言 UI 不再出现写死的 `/api`（清单已清零，新增直接调用会失败）；受影响的组件测试补上 `apiUrl` 沙箱注入，行为断言不变。
+- **未做（明确延期）：** 多环境命名空间、切换环境时的草稿/缓存隔离与旧响应失效——这些随 A4 真正启用切换时再做；当前只有单一默认基址。
+- **放行条件（B 线）：** Desktop 静态入口与 Remote 连接仍需要真实浏览器回归（聊天/历史/树/文件/预览/下载/设置/OAuth），不能只凭源码断言。
 
 ### PR A5 — 身份与持久化归属（已实施）
 
@@ -131,7 +132,7 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1/2/3 ✅ → A3.2 ✅ → A5 ✅ → A3.3 ◐（接缝）→ B1…B5
+A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1/2/3 ✅ → A3.2 ✅ → A3.3 ✅ → A5 ✅ → B1 ⏭（已批准）→ B2 → B3 → B4 → B5
 
 B1 消费 A3.3；B2 消费 A2 的独立入口/能力
 B3 消费 B1/B2 + A3，接通 Local 生命周期和更新保护

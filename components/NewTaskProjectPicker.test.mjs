@@ -87,6 +87,7 @@ function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fet
     focus() {}, contains: () => false,
   };
   const modules = {
+    "@/lib/api-base": { apiUrl: (path) => `/api${path}` },
     react: hooks,
     "react/jsx-runtime": { jsx: element, jsxs: element },
     "react-dom": { createPortal: (child) => child },

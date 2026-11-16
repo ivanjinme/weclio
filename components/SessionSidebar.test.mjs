@@ -39,6 +39,7 @@ function titleLoaderHarness(fetch, overrides = {}) {
   let pendingEffect;
   const context = {
     fetch, AbortController, threadTitleIds, visibleThreadRoots, projectPathKey,
+    apiUrl: (path) => `/api${path}`,
     useState(initial) {
       const index = cursor++;
       if (!(index in slots)) slots[index] = initial;
@@ -213,6 +214,7 @@ function projectGroupHarness(fetch = async () => { throw new Error("Unexpected f
   const errors = [];
   const context = {
     fetch,
+    apiUrl: (path) => `/api${path}`,
     setError: () => assert.fail("creation failures must not hide the catalog"),
     setTaskCreationError: (error) => { context.taskCreationError = error; if (error) errors.push(error); },
     React: { createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }) },

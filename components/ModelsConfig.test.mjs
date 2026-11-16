@@ -54,6 +54,7 @@ function harness(load) {
   };
   const element = (type, props) => ({ type, props: props ?? {} });
   const modules = {
+    "@/lib/api-base": { apiUrl: (path) => `/api${path}` },
     react: hooks,
     "react/jsx-runtime": { jsx: element, jsxs: element },
     "@/hooks/useIsMobile": { useIsMobile: () => false },

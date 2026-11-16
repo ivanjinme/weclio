@@ -11,6 +11,7 @@ import type {
   SkillsResponse,
   SkillUpdateResult,
 } from "@/lib/api-types";
+import { apiUrl } from "@/lib/api-base";
 
 function shortenPath(p: string): string {
   // Match common home dir patterns: /Users/xxx, /home/xxx
@@ -370,7 +371,7 @@ function AddSkillPanel({
     setSearchError(null);
     setResults([]);
     try {
-      const res = await fetch("/api/skills/search", {
+      const res = await fetch(apiUrl("/skills/search"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q.trim() }),
@@ -397,7 +398,7 @@ function AddSkillPanel({
       setInstalling(pkg);
       setInstallError(null);
       try {
-        const res = await fetch("/api/skills/install", {
+        const res = await fetch(apiUrl("/skills/install"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ package: pkg, scope, cwd }),
@@ -704,7 +705,7 @@ export function SkillsConfig({ cwd }: SkillsConfigProps) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(cwd ? `/api/skills?cwd=${encodeURIComponent(cwd)}` : "/api/skills?global=true");
+      const res = await fetch(apiUrl(cwd ? `/skills?cwd=${encodeURIComponent(cwd)}` : "/skills?global=true"));
       const d = (await res.json()) as Partial<SkillsResponse> & { error?: string };
       if (!res.ok || d.error) throw new Error(d.error ?? `HTTP ${res.status}`);
       const list = d.skills ?? [];
@@ -739,7 +740,7 @@ export function SkillsConfig({ cwd }: SkillsConfigProps) {
     setCheckingUpdates((current) => new Set([...current, ...keys]));
     if (!skill) setCheckingAll(true);
     try {
-      const res = await fetch("/api/skills/check", {
+      const res = await fetch(apiUrl("/skills/check"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -778,7 +779,7 @@ export function SkillsConfig({ cwd }: SkillsConfigProps) {
     setUpdatingSkill(key);
     setUpdateError(null);
     try {
-      const res = await fetch("/api/skills/update", {
+      const res = await fetch(apiUrl("/skills/update"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -819,7 +820,7 @@ export function SkillsConfig({ cwd }: SkillsConfigProps) {
     setToggling((s) => new Set(s).add(skill.filePath));
     setSaveError(null);
     try {
-      const res = await fetch("/api/skills", {
+      const res = await fetch(apiUrl("/skills"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

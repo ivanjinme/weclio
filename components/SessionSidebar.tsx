@@ -26,6 +26,7 @@ import {
 } from "@/lib/project-folders";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { apiUrl } from "@/lib/api-base";
 
 declare global {
   interface Window {
@@ -261,7 +262,7 @@ function ProjectEditDialog({ root, initialName, hasRunningTasks, onCancel, onRem
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/cwd/validate", {
+      const response = await fetch(apiUrl("/cwd/validate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: sourceFolder }),
@@ -562,7 +563,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setPinsBusy(true);
     setPinsError(null);
     try {
-      const response = await fetch("/api/sidebar-pins", {
+      const response = await fetch(apiUrl("/sidebar-pins"), {
         method,
         headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
@@ -589,8 +590,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     try {
       if (showLoading) setLoading(true);
       const [res, workspaceResponse] = await Promise.all([
-        fetch("/api/sessions"),
-        fetch("/api/cwd/default"),
+        fetch(apiUrl("/sessions")),
+        fetch(apiUrl("/cwd/default")),
       ]);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       if (!workspaceResponse.ok) throw new Error(`HTTP ${workspaceResponse.status}`);
@@ -645,7 +646,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     // Live running status via SSE — no polling. The server pushes the current
     // set of running session ids whenever any session starts/stops working.
-    const source = new EventSource("/api/agent/running/events");
+    const source = new EventSource(apiUrl("/agent/running/events"));
 
     source.onmessage = (e) => {
       try {
@@ -753,7 +754,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setCustomPathValidating(true);
     setCustomPathError(null);
     try {
-      const res = await fetch("/api/cwd/validate", {
+      const res = await fetch(apiUrl("/cwd/validate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: path }),
@@ -817,7 +818,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const saveProjectEdit = useCallback(async (previousRoot: string, nextRoot: string, name: string) => {
     if (previousRoot !== nextRoot) {
-      const response = await fetch("/api/projects/rebind", {
+      const response = await fetch(apiUrl("/projects/rebind"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ oldRoot: previousRoot, newRoot: nextRoot }),
@@ -972,7 +973,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const load = async () => {
       const titles: { id: string; name?: string; firstMessage: string }[] = [];
       for (let offset = 0; offset < requested.length; offset += 100) {
-        const response = await fetch("/api/sessions", {
+        const response = await fetch(apiUrl("/sessions"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1029,7 +1030,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <button type="button" className="projects-add" onClick={async () => {
               setTaskCreationError(null);
               try {
-                const response = await fetch("/api/cwd/default", { method: "POST" });
+                const response = await fetch(apiUrl("/cwd/default"), { method: "POST" });
                 const data = await response.json() as { cwd?: string; error?: string };
                 if (!response.ok || !data.cwd) throw new Error(data.error ?? `HTTP ${response.status}`);
                 setTasksOpen(true);
@@ -1495,7 +1496,7 @@ function SessionItem({
     setRenaming(false);
     if (name === (session.name ?? "")) return;
     try {
-      await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, {
+      await fetch(apiUrl(`/sessions/${encodeURIComponent(session.id)}`), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -1510,7 +1511,7 @@ function SessionItem({
     setConfirmDelete(false);
     setDeleting(true);
     try {
-      const response = await fetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
+      const response = await fetch(apiUrl(`/sessions/${encodeURIComponent(session.id)}`), { method: "DELETE" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       onDeleted?.(session.id);
     } catch {

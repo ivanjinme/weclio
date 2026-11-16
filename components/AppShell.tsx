@@ -31,6 +31,7 @@ import { dismissStartupSplash } from "@/lib/dismiss-startup-splash";
 import type { SessionInfo } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
+import { apiUrl } from "@/lib/api-base";
 
 interface SettingsContext {
   cwd: string | null;
@@ -259,7 +260,7 @@ export function AppShell() {
     setInitialCwdStatus("validating");
     setInitialCwdError(null);
 
-    void fetch("/api/cwd/validate", {
+    void fetch(apiUrl("/cwd/validate"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cwd: requestedCwd }),
@@ -535,7 +536,7 @@ export function AppShell() {
   }, []);
 
   const resolveDefaultWorkspace = useCallback(async (): Promise<string> => {
-    const response = await fetch("/api/cwd/default", { method: "POST" });
+    const response = await fetch(apiUrl("/cwd/default"), { method: "POST" });
     const data = await response.json().catch(() => ({})) as { cwd?: string; error?: string };
     if (!response.ok || !data.cwd) throw new Error(data.error ?? `HTTP ${response.status}`);
     const cwd = data.cwd;
@@ -565,7 +566,7 @@ export function AppShell() {
     if (!projectTrustCwd) return;
 
     const controller = new AbortController();
-    fetch(`/api/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`, {
+    fetch(apiUrl(`/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`), {
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -585,7 +586,7 @@ export function AppShell() {
     setProjectTrustBusy(true);
     setProjectTrustError(null);
     try {
-      const response = await fetch("/api/project-trust", {
+      const response = await fetch(apiUrl("/project-trust"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: projectTrustCwd }),

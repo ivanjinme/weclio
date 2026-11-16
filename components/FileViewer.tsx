@@ -29,6 +29,7 @@ import { MarkdownEditor } from "./MarkdownEditor";
 import { useFileDraft } from "@/hooks/useFileDraft";
 import type { FileDraftCoordinator } from "@/lib/file-draft";
 import { markdownFallbackReason } from "@/lib/markdown-editing";
+import { apiUrl } from "@/lib/api-base";
 
 interface Props {
   filePath: string;
@@ -208,7 +209,7 @@ function getFileApiUrl(
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) searchParams.set(key, String(value));
   }
-  return `/api/files/${encoded}?${searchParams.toString()}`;
+  return apiUrl(`/files/${encoded}?${searchParams.toString()}`);
 }
 
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
@@ -891,7 +892,7 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
 
     try {
       const params = new URLSearchParams({ cwd, path: targetPath });
-      const response = await fetch(`/api/git/diff?${params.toString()}`);
+      const response = await fetch(apiUrl(`/git/diff?${params.toString()}`));
       const next = await response.json() as GitFileDiffResponse & { error?: string };
       if (requestId !== gitDiffRequestRef.current) return;
       setGitDiff(response.ok && next.supported && typeof next.patch === "string" ? next : null);
