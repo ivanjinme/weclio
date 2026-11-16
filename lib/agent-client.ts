@@ -2,6 +2,7 @@
 // 当前 transport 直连 Next 路由；接入独立 Service 时只改 endpoint/basePath，不改调用点。
 
 import type { AgentCommand, AgentCommandResult } from "./agent/protocol/commands";
+import { getApiBase } from "./api-base";
 import { AgentProtocolError, isAgentProtocolErrorCode } from "./agent/protocol/validate";
 
 export interface AgentClientOptions {
@@ -70,8 +71,10 @@ function toProtocolError(response: Response, envelope: unknown): AgentProtocolEr
 }
 
 export function createAgentClient(options: AgentClientOptions = {}): AgentClient {
-  const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
-  const basePath = options.basePath ?? "/api";
+  // 未显式指定时跟随全局 API 基址（默认同源 /api）。
+  const configured = getApiBase();
+  const baseUrl = (options.baseUrl ?? configured.baseUrl).replace(/\/+$/, "");
+  const basePath = options.basePath ?? configured.basePath;
   const doFetch = options.fetch ?? ((...args: Parameters<typeof globalThis.fetch>) => globalThis.fetch(...args));
 
   return {

@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2/3、A3.2、A5 已实施；A3.3 与 B 线未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2/3、A3.2、A5 已实施；A3.3 仅完成接缝（UI 迁移未做）；B 线未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -107,13 +107,11 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 - **测试：** `lib/agent/session-events.test.mjs`（9 项：订阅先于快照、快照去重、缓冲顺序、seq 单调、resync、噪声过滤、close 幂等、心跳启停、Last-Event-ID 解析）；Service smoke 覆盖真实 SSE（connected/seq/resync/401）；Next 路由测试改为断言委托与断开清理。
 - **未做：** 有界事件 replay 与持久事件日志仍属延期项；OAuth 登录的 SSE 归 A2.2c-3。
 
-### PR A3.3 — 完整 Agent Client，本期只收口必要调用
+### PR A3.3 — 完整 Agent Client（接缝已实施，UI 迁移未做）
 
-- **模块/修改：** hooks/components、`agent-client`、`file-links`、`useFileDraft`。将裸 `/api`、EventSource、图片/iframe/下载 URL 收口到同一 Client；认证 fetch-stream，资源优先复用现有流程，确需直连 Range/流式访问时再加限定资源的短票据，不先建设通用票据平台，长期 token 不入 URL。
-- **状态：** 保留已有草稿协调和缓存；清理当前请求/订阅/重连 timer，不因静态化重写编辑状态。只有 A4 真正启用多个环境切换时，才为相关草稿/缓存增加 serviceId 命名空间与旧响应失效，不提前全量改造 localStorage。
-- **依赖：** A2.2a–c + A3.2；前面的纵向 PR 已接好能力，本 PR 做跨能力收尾，不再写一遍 Client/UI。
-- **风险/收益：** endpoint 可配置、UI 不依赖后端进程内存；重点是非聊天资源与现有编辑流程不能漏迁。
-- **测试/验收：** 本机不同端口/origin 的真实 UI→Service 全功能回归，文件草稿/预览/下载/本地 provider OAuth 正常，卸载不重建旧连接；UI 无 SDK runtime 或 Next 进程状态依赖，纯 DTO 无 SDK 类型依赖。无需 Remote VM 或多环境缓存系统。
+- **已完成（本轮）：** 新增 `lib/api-base.ts`（`apiUrl`/`configureApiBase`/`resetApiBase`，默认同源 `/api`，行为与拆分前一致）；`createAgentClient()` 未显式传参时跟随该基址；`lib/agent/api-migration.test.mjs` 记录仍直接写死 `/api` 的前端调用点清单（16 个文件、共 66 处），新增直接调用会让测试失败，避免迁移被遗忘。
+- **未做（需要单独一轮）：** 把清单里的 66 处调用改为 `apiUrl()`/Agent Client（含 EventSource、img/iframe/download/export 资源 URL），以及多环境命名空间与草稿隔离。这部分改动面覆盖聊天、侧栏、文件、设置等主要 UI，必须在真实浏览器里回归，不能只靠源码断言。
+- **放行条件：** 清单清零 + 双 origin 手工回归（聊天/历史/树/文件/预览/下载/设置/OAuth）通过后，才能把 Desktop 静态入口与 Remote 连接视为可用。
 
 ### PR A5 — 身份与持久化归属（已实施）
 
@@ -133,7 +131,7 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1/2/3 ✅ → A3.2 ✅ → A5 ✅ → A3.3 ⏭ → B1…B5
+A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1/2/3 ✅ → A3.2 ✅ → A5 ✅ → A3.3 ◐（接缝）→ B1…B5
 
 B1 消费 A3.3；B2 消费 A2 的独立入口/能力
 B3 消费 B1/B2 + A3，接通 Local 生命周期和更新保护
