@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2、A3.2（事件流）已实施；A2.2c-3 与 A3.3 起未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2、A3.2（事件流）、A5（身份）已实施；A2.2c-3（OAuth 已做/资源安装未做）与 A3.3 起未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -115,21 +115,12 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 - **风险/收益：** endpoint 可配置、UI 不依赖后端进程内存；重点是非聊天资源与现有编辑流程不能漏迁。
 - **测试/验收：** 本机不同端口/origin 的真实 UI→Service 全功能回归，文件草稿/预览/下载/本地 provider OAuth 正常，卸载不重建旧连接；UI 无 SDK runtime 或 Next 进程状态依赖，纯 DTO 无 SDK 类型依赖。无需 Remote VM 或多环境缓存系统。
 
-### PR A5 — 身份与持久化归属检查（收尾，不是迁移系统前置）
+### PR A5 — 身份与持久化归属（已实施）
 
-- **模块/修改：** Service 配置、session lookup、`sidebar-pins/default-workspace`；补齐必要配置注入及归属说明，优先保持现有路径/格式，不新建 Session DB 或 Workspace sidecar。
-
-| 标识/数据 | 最小边界 |
-| --- | --- |
-| `serviceId` / `instanceId` | A3.1 定义协议身份，A2.1 按配置/最小本地标识提供 Service 身份和启动实例身份；不建设环境注册/clone 管理系统，ID 不代替认证 |
-| `sessionId` / entry IDs | 沿用 Pi；跨 Service 用 serviceId+sessionId 定位，不改 JSONL、树和父链 |
-| Workspace / `workspaceId` | 归某 Service，当前沿用 canonical cwd/已有项目识别；未来真实环境管理需要稳定 workspaceId 时再落地持久映射，不先全量重写历史 |
-| Session/Workspace/配置/provider 凭据/trust/pins/用户包 | 目标 Service 所有；默认路径与用户选择保持不变，集中配置以便独立运行，禁止 Next 与 Service 竞争写 |
-| 客户端偏好/连接信息 | 客户端所有，长期凭据不入 URL/日志；纯 UI 偏好保持现状，多环境命名空间随 A4 真正启用切换时加入 |
-
-- **依赖：** A2 + A3.3；身份接口在前置 PR 已具备，本 PR 不反向阻塞运行核心抽离。
-- **风险/收益：** 验证职责与用户数据连续性，不因架构重命名搬迁数据。只有确需改路径/格式时，才为该变更增加一次性迁移、备份/失败恢复测试，不预建迁移框架。
-- **测试/验收：** 既有数据 fixture 中 Session IDs/树、models/auth/settings/trust/pins、用户包及已删除默认包选择保持；启动配置不意外落到另一 HOME。明确当前不支持外部 CLI 与 Service 共写同一会话。
+- **模块/修改：** Service 的 `service.json` 保存持久 `serviceId` 与本次 `instanceId`、协议版本、PID 与 URL；`owner.json` 声明数据目录属主；协议文档新增「身份与数据归属」表（serviceId/instanceId/sessionId/Workspace/凭据/客户端偏好各自归属）。
+- **规则：** `serviceId` 重启保留、克隆重生成；`instanceId` 每次启动变化并驱动前端 resync；同一 stateDir 只允许一个存活写入者，残留记录仅在属主进程不存在时接管；`serviceId`/令牌不能替代认证。
+- **测试：** `lib/agent/service/service-identity.test.mjs` 真实重启两次，断言 serviceId 稳定、instanceId 变化、identity 文件同步更新；并以存活 PID 模拟占用，断言第二实例拒绝启动（`already owns`）。
+- **未做（按计划）：** 不引入持久 Workspace 映射、不批量改写 JSONL、不做迁移框架；仅当确实改变数据路径/格式时才需要一次性迁移。
 
 ### A4 — Remote 与环境切换（Defer，不阻塞本地主线）
 
@@ -142,7 +133,7 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1 ✅ → A2.2c-2 ✅ → A3.2 ✅ → A2.2c-3 ⏭ → A3.3 → A5
+A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1 ✅ → A2.2c-2 ✅ → A3.2 ✅ → A5 ✅ → A2.2c-3 ⏭（OAuth ✅ / 资源安装未做）→ A3.3
 
 B1 消费 A3.3；B2 消费 A2 的独立入口/能力
 B3 消费 B1/B2 + A3，接通 Local 生命周期和更新保护

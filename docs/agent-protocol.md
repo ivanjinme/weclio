@@ -139,7 +139,21 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 - 支持 `AbortSignal`；中止错误原样抛出，不包装成协议错误。
 - 网络失败转为 `http_error`，保留 `cause`。
 
-## 9. 尚未包含
+## 9. 身份与数据归属
+
+| 标识 / 数据 | 归属与规则 |
+| --- | --- |
+| `serviceId` | Service 持久身份，写入 `stateDir/service.json`，**重启保留**；克隆/新环境必须重新生成 |
+| `instanceId` | 每次启动生成，用于识别重启与触发前端 resync |
+| `sessionId` / entryId | 沿用 Pi；跨 Service 用 `serviceId + sessionId` 定位，不改 JSONL/树/父链 |
+| Workspace | 由 `WECLIO_AGENT_WORKSPACE` 指定，归该 Service；当前不引入持久 workspaceId 映射 |
+| Pi 数据 / 凭据 / trust / pins | 归 Service 的 `agentDir`（`PI_CODING_AGENT_DIR`） |
+| 客户端偏好 | 归客户端；长期凭据不入 URL/日志 |
+
+- 同一 `stateDir` 只能有一个存活写入者：`owner.json` 记录的 PID 存活时，第二个实例拒绝启动；残留记录在属主进程不存在时才被接管。
+- `serviceId`/令牌**不是**认证替代品：令牌仍由受保护文件提供。
+
+## 10. 尚未包含
 
 Provider OAuth 登录由 `lib/agent/oauth-login-service` 编排，Next 路由与 Service 共用同一实现；登录状态（挂起的手动输入 token）按宿主实例隔离，不跨实例共享。
 
