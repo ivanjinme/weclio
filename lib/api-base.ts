@@ -36,5 +36,9 @@ export function resetApiBase(): void {
 export function apiUrl(path: string): string {
   if (/^[a-z]+:\/\//i.test(path)) return path;
   const normalized = path.startsWith("/") ? path : `/${path}`;
+  // 幂等：已经带基址的路径不再重复拼接，嵌套调用 apiFetch(apiUrl(x)) 安全。
+  if (current.basePath !== "/" && (normalized === current.basePath || normalized.startsWith(`${current.basePath}/`))) {
+    return `${current.baseUrl}${normalized}`;
+  }
   return `${current.baseUrl}${current.basePath}${normalized}`;
 }

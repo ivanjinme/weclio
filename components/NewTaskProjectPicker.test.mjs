@@ -88,6 +88,13 @@ function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fet
   };
   const modules = {
     "@/lib/api-base": { apiUrl: (path) => `/api${path}` },
+    "@/lib/api-fetch": { apiFetch: (url, init) => sandbox.fetch(url, init) },
+    "@/lib/event-stream": {
+      EVENT_STREAM_CONNECTING: 0,
+      EVENT_STREAM_OPEN: 1,
+      EVENT_STREAM_CLOSED: 2,
+      createEventStream: () => ({ close() {}, addEventListener() {}, removeEventListener() {}, readyState: 2, onmessage: null, onerror: null, onopen: null }),
+    },
     react: hooks,
     "react/jsx-runtime": { jsx: element, jsxs: element },
     "react-dom": { createPortal: (child) => child },
@@ -96,7 +103,7 @@ function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fet
     "./DirectoryPicker": { DirectoryPicker: "DirectoryPicker" },
   };
   const exports = {};
-  runInNewContext(compiled, {
+  const sandbox = {
     exports, require: (name) => { assert.ok(name in modules, `Unexpected import: ${name}`); return modules[name]; },
     AbortController,
     fetch: (url, options) => {
@@ -108,7 +115,8 @@ function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fet
     window: { innerWidth: 1000, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     document: { body: {}, addEventListener() {}, removeEventListener() {} },
     requestAnimationFrame: () => 1, cancelAnimationFrame() {},
-  });
+  };
+  runInNewContext(compiled, sandbox);
   function flush() {
     for (let count = 0; dirty && !unmounted; count++) {
       assert.ok(count < 20, "component entered a render loop");

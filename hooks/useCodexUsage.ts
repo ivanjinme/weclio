@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
 import type { CodexUsage } from "@/lib/codex-usage";
 
 export function useCodexUsage(menuOpen: boolean) {
@@ -13,7 +14,7 @@ export function useCodexUsage(menuOpen: boolean) {
     const controller = new AbortController();
     async function load() {
       try {
-        const response = await fetch(apiUrl("/usage/codex"), {
+        const response = await apiFetch(apiUrl("/usage/codex"), {
           cache: "no-store",
           signal: controller.signal,
         });

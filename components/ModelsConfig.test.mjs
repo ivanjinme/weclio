@@ -55,6 +55,13 @@ function harness(load) {
   const element = (type, props) => ({ type, props: props ?? {} });
   const modules = {
     "@/lib/api-base": { apiUrl: (path) => `/api${path}` },
+    "@/lib/api-fetch": { apiFetch: (url, init) => sandbox.fetch(url, init) },
+    "@/lib/event-stream": {
+      EVENT_STREAM_CONNECTING: 0,
+      EVENT_STREAM_OPEN: 1,
+      EVENT_STREAM_CLOSED: 2,
+      createEventStream: () => ({ close() {}, addEventListener() {}, removeEventListener() {}, readyState: 2, onmessage: null, onerror: null, onopen: null }),
+    },
     react: hooks,
     "react/jsx-runtime": { jsx: element, jsxs: element },
     "@/hooks/useIsMobile": { useIsMobile: () => false },
@@ -62,7 +69,7 @@ function harness(load) {
     "@/lib/models-config-import": { findProviderMissingModelBaseUrl: () => null },
   };
   const exports = {};
-  runInNewContext(compiled, {
+  const sandbox = {
     exports, Error,
     require(name) {
       if (name.startsWith("@lobehub/icons/")) return { default: "Icon" };
@@ -78,7 +85,8 @@ function harness(load) {
       return response({ providers: [] });
     },
     setTimeout() {},
-  });
+  };
+  runInNewContext(compiled, sandbox);
   function flush() {
     for (let count = 0; dirty; count++) {
       assert.ok(count < 20, "component entered a render loop");

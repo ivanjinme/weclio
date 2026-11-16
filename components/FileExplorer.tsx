@@ -13,6 +13,7 @@ import {
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -78,7 +79,7 @@ interface PendingConflict {
 
 async function fetchEntries(dirPath: string): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
-  const res = await fetch(apiUrl(`/files/${encoded}?type=list`));
+  const res = await apiFetch(apiUrl(`/files/${encoded}?type=list`));
   if (!res.ok) {
     let message = `Failed to load files (HTTP ${res.status})`;
     try {
@@ -102,7 +103,7 @@ async function fetchEntries(dirPath: string): Promise<FileNode[]> {
 
 async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
   const params = new URLSearchParams({ cwd });
-  const res = await fetch(apiUrl(`/git/status?${params.toString()}`));
+  const res = await apiFetch(apiUrl(`/git/status?${params.toString()}`));
   if (!res.ok) throw new Error(`Failed to load Git status (HTTP ${res.status})`);
   return res.json() as Promise<GitStatusResponse>;
 }
@@ -634,7 +635,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setUploadPhase("checking");
 
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         apiUrl(`/files/${encodeFilePathForApi(cwd)}?type=upload-check`),
         {
           method: "POST",

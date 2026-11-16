@@ -22,6 +22,7 @@ import type {
   ThinkingContent,
 } from "@/lib/types";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const MAX_MARKDOWN_CHARS = 100_000;
@@ -63,7 +64,7 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
     return cached;
   }
 
-  const request = fetch(
+  const request = apiFetch(
     apiUrl(`/sessions/${encodeURIComponent(sessionId)}/entries/${encodeURIComponent(entryId)}/thinking?blockIndex=${blockIndex}`),
   ).then(async (response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1505,7 +1506,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
     setLoadingFull(true);
     setFullError(null);
     try {
-      const res = await fetch(fullOutputUrl);
+      const res = await apiFetch(fullOutputUrl);
       const d = await res.json() as { success?: boolean; data?: { output?: string }; error?: string };
       if (d.success) {
         setFullOutput(d.data?.output ?? "");

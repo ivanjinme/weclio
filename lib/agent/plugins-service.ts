@@ -24,7 +24,6 @@ import type {
 import { AgentProtocolError } from "./protocol/validate";
 
 // 插件/资源包：列举与安装/删除/更新/启停。与宿主无关，Next 与 Service 共用。
-type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
 
 function emptyCounts(): PluginResourceCounts {
   return { extensions: 0, skills: 0, prompts: 0, themes: 0 };

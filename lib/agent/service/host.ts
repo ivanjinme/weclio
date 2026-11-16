@@ -284,6 +284,27 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
       return;
     }
 
+    // 跨源浏览器客户端（静态 UI / 本地 dev）需要 CORS 与预检；Origin 白名单仍未放宽。
+    const origin = req.headers.origin;
+    const corsAllowed = origin !== undefined && isAllowedOrigin(req);
+    if (corsAllowed) {
+      res.setHeader("access-control-allow-origin", origin!);
+      res.setHeader("vary", "origin");
+      res.setHeader("access-control-allow-headers", "authorization, content-type, last-event-id");
+      res.setHeader("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+      res.setHeader("access-control-max-age", "600");
+    }
+
+    if (method === "OPTIONS") {
+      if (!corsAllowed) {
+        sendError(res, 403, "forbidden_origin", "Cross-origin requests are not allowed", requestId);
+        return;
+      }
+      res.writeHead(204, { "x-request-id": requestId });
+      res.end();
+      return;
+    }
+
     const business = url.pathname.startsWith("/v1/");
     if (business) {
       if (!authorized(req, config.token)) {

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
@@ -63,9 +64,29 @@ service.once("exit", () => {
   shutdown();
 });
 
+// Service 首次启动会把引导令牌写进 stateDir；UI 需要它在内存里带 Authorization。
+const tokenPath = join(process.env.WECLIO_AGENT_STATE_DIR ?? join(root, "build/dev-service-state"), "service-token");
+
+async function waitForToken(timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(tokenPath)) {
+      const token = readFileSync(tokenPath, "utf8").trim();
+      if (token) return token;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return null;
+}
+
 // UI 指向 Service：NEXT_PUBLIC_* 在构建期注入，故用 dev 时的 env 直接传给 next。
+const token = await waitForToken();
+if (!token) {
+  console.error(`[dev] 等待 ${tokenPath} 超时，UI 将以匿名启动并可能收到 401。`);
+}
 run("ui", process.execPath, [nextBin, "dev", "-H", "127.0.0.1", "-p", String(UI_PORT)], {
   ...process.env,
   NEXT_PUBLIC_WECLIO_API_URL: `http://127.0.0.1:${SERVICE_PORT}`,
   NEXT_PUBLIC_WECLIO_API_BASE_PATH: "/v1",
+  ...(token ? { NEXT_PUBLIC_WECLIO_AGENT_TOKEN: token } : {}),
 });

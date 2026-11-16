@@ -3,6 +3,7 @@
 
 import type { AgentCommand, AgentCommandResult } from "./agent/protocol/commands";
 import { getApiBase } from "./api-base";
+import { agentAuthHeaders, hasAgentCredential } from "./agent-credential";
 import { routesForBase, type HostRoutes } from "./agent/routes";
 import { AgentProtocolError, isAgentProtocolErrorCode } from "./agent/protocol/validate";
 
@@ -87,7 +88,9 @@ export function createAgentClient(options: AgentClientOptions = {}): AgentClient
   return {
     routes,
     async sendCommand(sessionId, command, commandOptions) {
-      const headers = { ...(await options.headers?.()), "Content-Type": "application/json" };
+      // 令牌只在内存里；调用方显式给定的头优先。
+      const baseHeaders = { ...(await options.headers?.()), "Content-Type": "application/json" };
+      const headers = hasAgentCredential() ? agentAuthHeaders(baseHeaders) : baseHeaders;
       let response: Response;
       try {
         response = await doFetch(routes.commands(sessionId), {

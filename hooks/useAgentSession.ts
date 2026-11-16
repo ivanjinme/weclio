@@ -25,6 +25,8 @@ import {
   type ClientAssistantMessageEvent,
 } from "@/lib/streaming-message";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
+import { createEventStream, EVENT_STREAM_CLOSED, EVENT_STREAM_OPEN, type EventStreamLike } from "@/lib/event-stream";
 
 export interface SessionData {
   sessionId: string;
@@ -119,7 +121,7 @@ type EventStreamConnectionStatus = "connected" | "timeout" | "closed";
 
 type EventStreamConnectionResult = {
   status: EventStreamConnectionStatus;
-  source: EventSource;
+  source: EventStreamLike;
 };
 
 class EventStreamConnectionError extends Error {
@@ -222,7 +224,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
 
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<EventStreamLike | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
   const agentRunningRef = useRef(false);
   const bashRunningRef = useRef(false);
@@ -305,7 +307,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       if (showLoading) setLoading(true);
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
-      const res = await fetch(apiUrl(`/sessions/${encodeURIComponent(sid)}?${params}`));
+      const res = await apiFetch(apiUrl(`/sessions/${encodeURIComponent(sid)}?${params}`));
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -333,7 +335,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!includeState) return null;
 
       try {
-        const stateRes = await fetch(apiUrl(`/sessions/${encodeURIComponent(sid)}/state`));
+        const stateRes = await apiFetch(apiUrl(`/sessions/${encodeURIComponent(sid)}/state`));
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
         if (sessionIdRef.current !== sid) return null;
@@ -415,7 +417,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const promise = (async () => {
       const selectedModel = newSessionModel ?? newSessionDefaultModel;
       if (selectedModel) setPendingModel(selectedModel);
-      const res = await fetch(apiUrl("/agent/new"), {
+      const res = await apiFetch(apiUrl("/agent/new"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -467,7 +469,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    const es = new EventSource(getDefaultAgentClient().routes.events(sid));
+    const es = createEventStream(getDefaultAgentClient().routes.events(sid));
     eventSourceRef.current = es;
 
     return new Promise((resolve) => {
@@ -491,7 +493,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         }
       };
       es.onerror = () => {
-        if (es.readyState === EventSource.CLOSED) {
+        if (es.readyState === EVENT_STREAM_CLOSED) {
           // Fatal error (404/500/content-type mismatch): browser won't
           // auto-reconnect. Settle the Promise and manually reconnect for
           // already-running sessions.
@@ -512,7 +514,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const ensureEventsConnected = useCallback(async (sid: string) => {
     const result = await connectEvents(sid);
-    if (result.status === "connected" || result.source.readyState === EventSource.OPEN) return;
+    if (result.status === "connected" || result.source.readyState === EVENT_STREAM_OPEN) return;
     if (eventSourceRef.current === result.source) eventSourceRef.current = null;
     result.source.close();
     throw new EventStreamConnectionError(result.status);
@@ -638,7 +640,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     while (agentRunningRef.current && Date.now() - startedAt < PROMPT_SETTLE_MAX_MS) {
       if (runId !== undefined && promptRunIdRef.current !== runId) return;
       try {
-        const res = await fetch(apiUrl(`/agent/${encodeURIComponent(sid)}`));
+        const res = await apiFetch(apiUrl(`/agent/${encodeURIComponent(sid)}`));
         if (res.ok) {
           const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
           const state = data.state;
@@ -665,7 +667,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ) {
       await delay(BASH_STATE_RECONCILE_MS);
       try {
-        const res = await fetch(apiUrl(`/agent/${encodeURIComponent(sid)}`));
+        const res = await apiFetch(apiUrl(`/agent/${encodeURIComponent(sid)}`));
         if (!res.ok) continue;
         const data = await res.json() as { state?: AgentStateResponse };
         if (data.state?.isBashRunning) continue;
@@ -691,7 +693,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!agentRunningRef.current) return;
     const runId = promptRunIdRef.current;
     try {
-      const res = await fetch(apiUrl(`/agent/${encodeURIComponent(sid)}`));
+      const res = await apiFetch(apiUrl(`/agent/${encodeURIComponent(sid)}`));
       if (!res.ok) return;
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       // A slow response can straddle a run boundary (previous run finished
@@ -777,7 +779,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         dispatch({ type: "end" });
         if (sessionIdRef.current) {
           loadSession(sessionIdRef.current);
-          fetch(apiUrl(`/agent/${encodeURIComponent(sessionIdRef.current)}`))
+          apiFetch(apiUrl(`/agent/${encodeURIComponent(sessionIdRef.current)}`))
             .then((r) => r.json())
             .then((d: { state?: AgentStateResponse }) => {
               if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
@@ -1134,7 +1136,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [loadContext]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
-    void fetch(apiUrl("/models-config/default"), {
+    void apiFetch(apiUrl("/models-config/default"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ provider, modelId }),

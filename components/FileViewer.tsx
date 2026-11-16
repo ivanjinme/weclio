@@ -30,6 +30,8 @@ import { useFileDraft } from "@/hooks/useFileDraft";
 import type { FileDraftCoordinator } from "@/lib/file-draft";
 import { markdownFallbackReason } from "@/lib/markdown-editing";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
+import { createEventStream, type EventStreamLike } from "@/lib/event-stream";
 
 interface Props {
   filePath: string;
@@ -428,7 +430,7 @@ function ImageViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
   const [size, setSize] = useState<number | null>(null);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<EventStreamLike | null>(null);
   const revisionRef = useRef<MediaRevision | null>(null);
 
   const ext = getFileName(filePath).toLowerCase().split(".").pop() ?? "";
@@ -446,7 +448,7 @@ function ImageViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
     setWatching(false);
     if (!active) return;
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = createEventStream(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     // A prior subscription may have closed before establishing its revision.
@@ -575,7 +577,7 @@ function AudioViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
   const [size, setSize] = useState<number | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<EventStreamLike | null>(null);
   const revisionRef = useRef<MediaRevision | null>(null);
 
   const ext = getFileName(filePath).toLowerCase().split(".").pop() ?? "";
@@ -593,7 +595,7 @@ function AudioViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
     setWatching(false);
     if (!active) return;
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = createEventStream(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     // A prior subscription may have closed before establishing its revision.
@@ -703,7 +705,7 @@ function DocumentViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<EventStreamLike | null>(null);
   const revisionRef = useRef<MediaRevision | null>(null);
 
   const ext = getFileExt(filePath);
@@ -739,7 +741,7 @@ function DocumentViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<
     setWatching(false);
     if (!active) return;
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = createEventStream(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     // A prior subscription may have closed before establishing its revision.
@@ -860,7 +862,7 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
   const [displayMode, setDisplayMode] = useState<DisplayMode>("source");
   const [wrapLines, setWrapLines] = useState(false);
   const [watching, setWatching] = useState(false);
-  const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<EventStreamLike | null>(null);
   const gitDiffRequestRef = useRef(0);
   const gitRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -892,7 +894,7 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
 
     try {
       const params = new URLSearchParams({ cwd, path: targetPath });
-      const response = await fetch(apiUrl(`/git/diff?${params.toString()}`));
+      const response = await apiFetch(apiUrl(`/git/diff?${params.toString()}`));
       const next = await response.json() as GitFileDiffResponse & { error?: string };
       if (requestId !== gitDiffRequestRef.current) return;
       setGitDiff(response.ok && next.supported && typeof next.patch === "string" ? next : null);
@@ -944,7 +946,7 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
     }
     if (isDeletedDiff) return;
 
-    const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
+    const es = createEventStream(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
     es.addEventListener("connected", () => {

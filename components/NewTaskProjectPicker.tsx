@@ -14,6 +14,7 @@ import {
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface Props {
   resetKey: string;
@@ -78,7 +79,7 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
     const controller = new AbortController();
     setError(null);
     const loadDefaultWorkspace = async () => {
-      const response = await fetch(apiUrl("/cwd/default"), { signal: controller.signal });
+      const response = await apiFetch(apiUrl("/cwd/default"), { signal: controller.signal });
       const data = await response.json() as { cwd?: string; error?: string };
       if (!response.ok || !data.cwd) throw new Error(data.error ?? `HTTP ${response.status}`);
       if (!controller.signal.aborted) setDefaultWorkspace(data.cwd);
@@ -98,7 +99,7 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
     // the fresh session list is in flight.
     setEntries(buildProjectEntries(localRoots));
     try {
-      const response = await fetch(apiUrl("/sessions"), { signal: controller.signal });
+      const response = await apiFetch(apiUrl("/sessions"), { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json() as { sessions?: SessionInfo[] };
       if (!controller.signal.aborted) setEntries(buildProjectEntries(localRoots, data.sessions));
@@ -205,7 +206,7 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
     setValidating(true);
     setError(null);
     try {
-      const response = await fetch(apiUrl("/cwd/validate"), {
+      const response = await apiFetch(apiUrl("/cwd/validate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cwd: candidate }),

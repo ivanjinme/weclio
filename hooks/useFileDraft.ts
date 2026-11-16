@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useSyncExternalStore } from "react";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
 import { FileDraftCoordinator, type DraftSnapshot, type FileReadResult } from "@/lib/file-draft";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 
 export function createFileDraftCoordinator(onSaved: (path: string) => void): FileDraftCoordinator {
   return new FileDraftCoordinator(async (path, text) => {
-    const response = await fetch(apiUrl(`/files/${encodeFilePathForApi(path)}`), {
+    const response = await apiFetch(apiUrl(`/files/${encodeFilePathForApi(path)}`), {
       method: "PUT", headers: { "Content-Type": "text/plain; charset=utf-8" }, body: text,
     });
     const result = await response.json() as { error?: string };
@@ -14,7 +15,7 @@ export function createFileDraftCoordinator(onSaved: (path: string) => void): Fil
   }, async (path, sessionId) => {
     const params = new URLSearchParams({ type: "read" });
     if (sessionId) params.set("sessionId", sessionId);
-    const response = await fetch(apiUrl(`/files/${encodeFilePathForApi(path)}?${params}`));
+    const response = await apiFetch(apiUrl(`/files/${encodeFilePathForApi(path)}?${params}`));
     const result = await response.json() as FileReadResult & { error?: string };
     if (!response.ok) throw new Error(result.error ?? "Failed to read file");
     return result;

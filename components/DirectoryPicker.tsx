@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { apiUrl } from "@/lib/api-base";
+import { apiFetch } from "@/lib/api-fetch";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -19,7 +20,7 @@ interface BrowseResponse {
 
 async function loadDirectories(directory?: string): Promise<BrowseResponse> {
   const query = directory ? `?path=${encodeURIComponent(directory)}` : "";
-  const response = await fetch(apiUrl(`/cwd/browse${query}`));
+  const response = await apiFetch(apiUrl(`/cwd/browse${query}`));
   const data = await response.json() as BrowseResponse;
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
   return data;

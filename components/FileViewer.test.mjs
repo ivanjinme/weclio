@@ -16,7 +16,7 @@ for (const name of ["ImageViewer", "AudioViewer", "DocumentViewer", "TextFileVie
   test(`${name} suspends its watch without resetting retained view state`, () => {
     const viewer = viewerSource(name);
     assert.match(viewer, /active = true/);
-    const watchStart = viewer.lastIndexOf("  useEffect(() => {", viewer.indexOf("const es = new EventSource"));
+    const watchStart = viewer.lastIndexOf("  useEffect(() => {", viewer.indexOf("const es = createEventStream"));
     const watchEnd = viewer.indexOf("\n  }, [", watchStart);
     const watch = viewer.slice(watchStart, viewer.indexOf(";", watchEnd) + 1);
     if (name === "TextFileViewer") {
@@ -25,11 +25,11 @@ for (const name of ["ImageViewer", "AudioViewer", "DocumentViewer", "TextFileVie
     } else {
       assert.match(watch, /if \(!active\) return;/);
       assert.doesNotMatch(viewer, /refreshOnActivateRef/);
-      assert.doesNotMatch(watch.slice(0, watch.indexOf("const es = new EventSource")), /setBust|setError|refreshMetadata/);
+      assert.doesNotMatch(watch.slice(0, watch.indexOf("const es = createEventStream")), /setBust|setError|refreshMetadata/);
     }
     assert.match(watch, /return \(\) => \{[\s\S]*es\.close\(\)/);
     assert.match(watch, /\}, \[active,/);
-    assert.doesNotMatch(watch.slice(0, watch.indexOf("const es = new EventSource")), /set(?:Loading|DisplayMode|WrapLines|MarkdownUnsafe|SelectedLineRange|NaturalSize|Duration)\(/);
+    assert.doesNotMatch(watch.slice(0, watch.indexOf("const es = createEventStream")), /set(?:Loading|DisplayMode|WrapLines|MarkdownUnsafe|SelectedLineRange|NaturalSize|Duration)\(/);
     assert.doesNotMatch(watch, /setBust\(0\)|setSize\(null\)/);
   });
 }
@@ -37,7 +37,7 @@ for (const name of ["ImageViewer", "AudioViewer", "DocumentViewer", "TextFileVie
 for (const name of ["ImageViewer", "AudioViewer", "DocumentViewer"]) {
   test(`${name} compares revisions across reconnects without resetting unchanged media`, () => {
     const viewer = viewerSource(name);
-    const start = viewer.lastIndexOf("  useEffect(() => {", viewer.indexOf("const es = new EventSource"));
+    const start = viewer.lastIndexOf("  useEffect(() => {", viewer.indexOf("const es = createEventStream"));
     const end = viewer.indexOf("\n  }, [", start);
     const body = viewer.slice(start + "  useEffect(() => {".length, end);
     const compiled = ts.transpileModule(`function watch() {${body}\n}`, {
@@ -66,10 +66,10 @@ for (const name of ["ImageViewer", "AudioViewer", "DocumentViewer"]) {
       close() { this.closed = true; }
     }
     const run = (active) => new Function(
-      "active", "EventSource", "revisionRef", "hasSubscribedRef", "esRef", "setWatching", "setSize", "setError", "setBust", "setDuration",
+      "active", "EventSource", "createEventStream", "revisionRef", "hasSubscribedRef", "esRef", "setWatching", "setSize", "setError", "setBust", "setDuration",
       "getFileApiUrl", "filePath", "sourceSessionId", "isPdf", "DOCX_PREVIEW_MAX_BYTES",
       `${compiled}\nreturn watch();`,
-    )(active, EventSource, revisionRef, hasSubscribedRef, esRef, () => {}, setter("size"), setter("error"), setter("bust"), setter("duration"),
+    )(active, EventSource, (url) => new EventSource(url), revisionRef, hasSubscribedRef, esRef, () => {}, setter("size"), setter("error"), setter("bust"), setter("duration"),
       () => "/watch", "/media", null, false, 10 * 1024 * 1024);
     const initial = { mtime: "2026-01-01T00:00:00.000Z", size: 100 };
     let cleanup = run(true);

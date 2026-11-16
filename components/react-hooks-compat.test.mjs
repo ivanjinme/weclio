@@ -190,6 +190,13 @@ test("agent extension and queue callbacks use the latest editor handle without r
   const hooks = createHooks();
   let resolveQueue;
   const { useAgentSession } = await loader(hooks, {
+    "@/lib/event-stream": {
+      // 事件流改成 fetch 实现后，用替身把连接交回测试里的 EventSource。
+      EVENT_STREAM_CONNECTING: 0,
+      EVENT_STREAM_OPEN: 1,
+      EVENT_STREAM_CLOSED: 2,
+      createEventStream: (url) => new globalThis.EventSource(url),
+    },
     "@/lib/agent-client": {
       getDefaultAgentClient: () => ({ routes: { events: (id) => "/api/agent/" + id + "/events", runningEvents: () => "/api/agent/running/events", commands: (id) => "/api/agent/" + id, state: (id) => "/api/sessions/" + id + "/state" } }),
       sendAgentCommand(_sid, command) {
