@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useCallback, useEffect, useImperativeHandle, forwardRef, KeyboardEvent } from "react";
+import { apiUrl } from "@/lib/api-base";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo, ThinkingLevelOption } from "@/hooks/useAgentSession";
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
@@ -576,7 +577,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const fetchCwd = cwd;
     const query = atQueryText;
     const timer = setTimeout(() => {
-      fetch(`/api/file-index?cwd=${encodeURIComponent(fetchCwd)}&q=${encodeURIComponent(query)}`)
+      fetch(apiUrl(`/file-index?cwd=${encodeURIComponent(fetchCwd)}&q=${encodeURIComponent(query)}`))
         .then((res) => {
           if (!res.ok) throw new Error(`file search failed: ${res.status}`);
           return res.json() as Promise<{ matches?: FileIndexEntry[] }>;
@@ -619,7 +620,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     fileIndexFetchingRef.current = cwd;
     const fetchCwd = cwd;
     setFileIndexLoading(true);
-    fetch(`/api/file-index?cwd=${encodeURIComponent(fetchCwd)}`)
+    fetch(apiUrl(`/file-index?cwd=${encodeURIComponent(fetchCwd)}`))
       .then((res) => {
         if (!res.ok) throw new Error(`file index failed: ${res.status}`);
         return res.json() as Promise<{ files?: string[]; truncated?: boolean }>;

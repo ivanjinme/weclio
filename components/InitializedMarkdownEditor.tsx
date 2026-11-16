@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { apiUrl } from "@/lib/api-base";
 import { MDXEditor, headingsPlugin, listsPlugin, quotePlugin, thematicBreakPlugin, linkPlugin, linkDialogPlugin,
   imagePlugin, tablePlugin, codeBlockPlugin, codeMirrorPlugin, markdownShortcutPlugin, type MDXEditorMethods } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
@@ -27,7 +28,7 @@ export default function InitializedMarkdownEditor(props: MarkdownEditorProps) {
       const local = resolveLocalFileHref(url, directory, props.cwd ?? directory);
       const params = new URLSearchParams({ type: "read" });
       if (props.sourceSessionId) params.set("sessionId", props.sourceSessionId);
-      return local ? `/api/files/${encodeFilePathForApi(local)}?${params}` : markdownUrlTransform(url);
+      return local ? apiUrl(`/files/${encodeFilePathForApi(local)}?${params}`) : markdownUrlTransform(url);
     } }), tablePlugin(), codeBlockPlugin({ defaultCodeBlockLanguage: "" }),
     codeMirrorPlugin({ codeBlockLanguages: { "": "Text", js: "JavaScript", ts: "TypeScript", jsx: "JSX", tsx: "TSX", css: "CSS", html: "HTML", bash: "Shell", json: "JSON", python: "Python" } }),
     markdownShortcutPlugin()], [directory, props.cwd, props.sourceSessionId]);
