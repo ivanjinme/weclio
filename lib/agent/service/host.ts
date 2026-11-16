@@ -46,6 +46,8 @@ import {
 } from "../provider-auth-service";
 import { getCodexUsage } from "../../codex-usage";
 import { openSessionEventStream, parseLastEventId } from "../session-events";
+import type { OAuthClientEvent } from "../oauth-login-service";
+import { createOAuthLoginManager } from "../oauth-login-service";
 import {
   browseWorkspace,
   ensureWorkspace,
@@ -200,10 +202,7 @@ function sendFileWatch(res: ServerResponse, filePath: string, stat: Stats): void
   });
   const send = (eventName: string, data: Record<string, unknown>) => {
     if (res.writableEnded) return;
-    res.write(`event: ${eventName}
-data: ${JSON.stringify(data)}
-
-`);
+    res.write(`event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   let lastMtimeMs = stat.mtimeMs;
   let lastSize = stat.size;
@@ -234,6 +233,8 @@ data: ${JSON.stringify(data)}
 
 export async function startAgentServiceHost(options: AgentServiceHostOptions): Promise<AgentServiceHost> {
   const { runtime, config } = options;
+  // 每个 Service 实例自己的 OAuth 登录状态：不跨实例共享挂起会话。
+  const oauthLogins = createOAuthLoginManager();
 
   const server = createServer((req, res) => {
     void handle(req, res).catch((error) => {
@@ -483,6 +484,36 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
       const body = JSON.parse(await readBody(req)) as { oldRoot?: unknown; newRoot?: unknown };
       sendJson(res, 200, await rebindProject(body, runtime), requestId);
       return;
+    }
+
+    const loginRoute = /^\/v1\/provider-auth\/login\/([^/]+)$/.exec(url.pathname);
+    if (loginRoute) {
+      const provider = decodeURIComponent(loginRoute[1]);
+      if (method === "POST") {
+        const body = JSON.parse(await readBody(req)) as { token?: unknown; code?: unknown };
+        if (typeof body.token !== "string" || typeof body.code !== "string") {
+          throw new AgentProtocolError("invalid_argument", "token and code required");
+        }
+        oauthLogins.submit(body.token, body.code);
+        sendJson(res, 200, { ok: true }, requestId);
+        return;
+      }
+      if (method === "GET") {
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive",
+          "x-accel-buffering": "no",
+          "x-request-id": requestId,
+        });
+        const handle = oauthLogins.start(provider, (event: OAuthClientEvent) => {
+          if (!res.writableEnded) res.write("data: " + JSON.stringify(event) + "\n\n");
+        });
+        const finish = () => { try { res.end(); } catch { /* 已结束 */ } };
+        res.on("close", () => handle.abort());
+        void handle.done.finally(finish);
+        return;
+      }
     }
 
     if (method === "GET" && url.pathname === "/v1/provider-auth/oauth") {

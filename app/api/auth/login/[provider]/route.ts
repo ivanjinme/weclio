@@ -1,202 +1,69 @@
-import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { invalidateModelsCache } from "@/lib/models-cache";
-import { createOAuthLoginOptions } from "@/lib/oauth-login-options";
-import { createOAuthSseWriter } from "@/lib/oauth-sse";
-import { createManualLoginToken } from "@/lib/oauth-login-token";
+import { NextResponse } from "next/server";
+import { getDefaultOAuthLoginManager, type OAuthClientEvent } from "@/lib/agent/oauth-login-service";
+import { protocolErrorResponse } from "@/lib/agent/next-error-response";
 
 export const dynamic = "force-dynamic";
 
-// In-memory registry: loginToken -> resolve/reject for the manualCodeInput promise
-declare global {
-  var __piLoginCallbacks: Map<string, { resolve: (v: string) => void; reject: (e: Error) => void }> | undefined;
-}
-
-function getCallbackRegistry() {
-  if (!globalThis.__piLoginCallbacks) globalThis.__piLoginCallbacks = new Map();
-  return globalThis.__piLoginCallbacks;
-}
-
-// POST /api/auth/login/[provider] — frontend sends redirect URL or auth code
+// POST — 浏览器回填跳转 URL 或授权码；登录编排在 lib/agent/oauth-login-service。
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ) {
-  const { provider } = await params;
-  const { token, code } = (await req.json()) as { token?: string; code?: string };
-
-  if (!token || !code) {
-    return Response.json({ error: "token and code required" }, { status: 400 });
+  try {
+    // provider 只用于校验路径本身合法；token 决定实际挂起的登录。
+    await params;
+    const { token, code } = (await req.json()) as { token?: unknown; code?: unknown };
+    if (typeof token !== "string" || typeof code !== "string") {
+      return NextResponse.json({ error: "token and code required", code: "invalid_argument" }, { status: 400 });
+    }
+    getDefaultOAuthLoginManager().submit(token, code);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return protocolErrorResponse(error);
   }
-
-  const registry = getCallbackRegistry();
-  const callbacks = registry.get(token);
-  if (!callbacks) {
-    return Response.json({ error: "No pending login for token" }, { status: 404 });
-  }
-  // Verify token belongs to this provider (token format: "<provider>-<uuid>")
-  if (!token.startsWith(`${provider}-`)) {
-    return Response.json({ error: "Token does not match provider" }, { status: 400 });
-  }
-
-  callbacks.resolve(code);
-  registry.delete(token);
-  return Response.json({ ok: true, provider });
 }
 
-// GET /api/auth/login/[provider] — SSE stream for OAuth flow
+// GET — SSE 事件流；断连即取消登录。
 export async function GET(
   req: Request,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ) {
   const { provider } = await params;
-
-  const { send, close, markClosed } = createOAuthSseWriter();
-
-  // AbortController propagates client disconnect into ModelRuntime.login().
-  const abort = new AbortController();
-  req.signal.addEventListener("abort", () => abort.abort());
+  const manager = getDefaultOAuthLoginManager();
+  const encoder = new TextEncoder();
+  let closed = false;
 
   const stream = new ReadableStream({
-    async start(controller) {
-      const registry = getCallbackRegistry();
-      const activeTokens = new Set<string>();
-      let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
-
-      const createClientInputRequest = () => {
-        const token = createManualLoginToken(provider);
-        activeTokens.add(token);
-
-        const promise = new Promise<string>((resolve, reject) => {
-          registry.set(token, {
-            resolve: (value) => {
-              activeTokens.delete(token);
-              registry.delete(token);
-              resolve(value);
-            },
-            reject: (error) => {
-              activeTokens.delete(token);
-              registry.delete(token);
-              reject(error);
-            },
-          });
-        });
-
-        return { token, promise };
-      };
-
-      const getManualInputRequest = () => {
-        if (!pendingManualRequest) {
-          pendingManualRequest = createClientInputRequest();
-          pendingManualRequest.promise
-            .finally(() => {
-              pendingManualRequest = undefined;
-            })
-            .catch(() => {});
-        }
-        return pendingManualRequest;
-      };
-
-      // Cleanup: remove pending token and abort any waiting promise
-      const cleanup = () => {
-        for (const token of activeTokens) {
-          registry.get(token)?.reject(new Error("Login cancelled"));
-          registry.delete(token);
-        }
-        activeTokens.clear();
-      };
-
-      // Also cancel on client disconnect
-      abort.signal.addEventListener("abort", cleanup);
-
-      let loginOptions: ReturnType<typeof createOAuthLoginOptions> | undefined;
-      let oauthSucceeded = false;
-      let loginError: Error | undefined;
-      let errorCode: string | undefined;
-      try {
-        const modelRuntime = await ModelRuntime.create();
-        if (!modelRuntime.getProvider(provider)?.auth.oauth) {
-          throw new Error(`Unknown provider: ${provider}`);
-        }
-        loginOptions = createOAuthLoginOptions();
-        await modelRuntime.login(provider, "oauth", {
-          prompt: async (prompt: AuthPrompt) => {
-            const request = prompt.type === "manual_code"
-              ? getManualInputRequest()
-              : createClientInputRequest();
-            if (prompt.type === "select") {
-              send(controller, {
-                type: "select_request",
-                message: prompt.message,
-                options: prompt.options,
-                token: request.token,
-              });
-            } else {
-              send(controller, {
-                type: "prompt_request",
-                message: prompt.message,
-                placeholder: prompt.placeholder ?? null,
-                token: request.token,
-              });
-            }
-            return request.promise;
-          },
-          notify: (event: AuthEvent) => {
-            if (event.type === "auth_url") {
-              const request = getManualInputRequest();
-              send(controller, {
-                type: "auth",
-                url: event.url,
-                instructions: event.instructions ?? null,
-                token: request.token,
-              });
-            } else if (event.type === "device_code") {
-              send(controller, {
-                type: "device_code",
-                userCode: event.userCode,
-                verificationUri: event.verificationUri,
-                intervalSeconds: event.intervalSeconds ?? null,
-                expiresInSeconds: event.expiresInSeconds ?? null,
-              });
-            } else {
-              send(controller, { type: "progress", message: event.message });
-            }
-          },
-          signal: abort.signal,
-        }, loginOptions.options);
-
-        oauthSucceeded = true;
-        invalidateModelsCache();
-      } catch (err) {
-        loginError = err instanceof Error ? err : new Error(String(err));
-      } finally {
-        cleanup();
+    start(controller) {
+      const write = (chunk: string) => {
+        if (closed) return;
         try {
-          await loginOptions?.flush();
-        } catch (err) {
-          // 授权失败或取消时保留原始原因；授权成功后的本地保存失败单独反馈。
-          if (!loginError) {
-            loginError = oauthSucceeded
-              ? new Error("OAuth authorization succeeded, but the device ID could not be saved locally", { cause: err })
-              : err instanceof Error ? err : new Error(String(err));
-            if (oauthSucceeded) errorCode = "device_id_persistence_failed";
-          } else {
-            console.error("Failed to flush OAuth login settings", err);
-          }
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          closed = true;
         }
-        if (loginError?.message === "Login cancelled") {
-          send(controller, { type: "cancelled" });
-        } else if (loginError) {
-          send(controller, { type: "error", message: loginError.message, code: errorCode });
-        } else {
-          send(controller, { type: "success" });
+      };
+      const emit = (event: OAuthClientEvent) => write("data: " + JSON.stringify(event) + "\n\n");
+
+      const handle = manager.start(provider, emit);
+      const finish = () => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // 浏览器或运行时可能已关闭。
         }
-        close(controller);
-      }
+      };
+      const cancel = () => {
+        handle.abort();
+        finish();
+      };
+      req.signal.addEventListener("abort", cancel, { once: true });
+      void handle.done.finally(finish);
     },
     cancel() {
-      markClosed();
-      abort.abort();
+      closed = true;
     },
   });
 

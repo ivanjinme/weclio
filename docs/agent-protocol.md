@@ -80,6 +80,8 @@ GET    /v1/provider-auth/api-key/:p      凭据状态（不含密钥）
 POST   /v1/provider-auth/api-key/:p      { apiKey } → 保存
 DELETE /v1/provider-auth/api-key/:p      删除已存密钥
 POST   /v1/provider-auth/logout/:p       登出 OAuth provider
+GET    /v1/provider-auth/login/:p        OAuth 登录 SSE（auth/device_code/select/prompt/progress/success|cancelled|error）
+POST   /v1/provider-auth/login/:p        { token, code } → 回填授权码或跳转 URL
 GET    /v1/settings/models/providers/:p  联网刷新 provider 模型
 GET    /v1/usage/codex                   Codex 用量
 GET    /v1/models?cwd=                   模型列表（受项目信任门控）
@@ -139,6 +141,6 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 
 ## 9. 尚未包含
 
-**Provider OAuth 登录（`GET /v1/provider-auth/login/:provider`）仍在 Next 路由**：它是 SSE 长连接 + 手动 code 回调，需要 A3.2 的 SSE 基础设施与事件游标，届时一并迁入；当前 Service 只提供非 SSE 的凭据读写与登出。
+Provider OAuth 登录由 `lib/agent/oauth-login-service` 编排，Next 路由与 Service 共用同一实现；登录状态（挂起的手动输入 token）按宿主实例隔离，不跨实例共享。
 
 认证授权细化与重新连接（A3.2）、命令去重与回执、事件 replay、文件/设置路由、Remote 部署。Service 入口目前通过 jiti 直接运行 TS 源码，编译产物与捆绑 Runtime 归 B2。
