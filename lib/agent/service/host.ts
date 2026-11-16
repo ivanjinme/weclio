@@ -45,6 +45,7 @@ import {
   saveApiKey,
 } from "../provider-auth-service";
 import { getCodexUsage } from "../../codex-usage";
+import { openSessionEventStream, parseLastEventId } from "../session-events";
 import {
   browseWorkspace,
   ensureWorkspace,
@@ -587,6 +588,41 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     if (method === "POST" && url.pathname === "/v1/sessions/titles") {
       const body = JSON.parse(await readBody(req)) as { ids?: unknown };
       sendJson(res, 200, { titles: await listSessionTitles(body.ids as string[]) }, requestId);
+      return;
+    }
+
+    const eventsRoute = /^\/v1\/sessions\/([^/]+)\/events$/.exec(url.pathname);
+    if (method === "GET" && eventsRoute) {
+      const sessionId = decodeURIComponent(eventsRoute[1]);
+      const cwd = url.searchParams.get("cwd") ?? config.workspace;
+      const existing = runtime.getSession(sessionId);
+      const { session } = existing?.isAlive()
+        ? { session: existing }
+        : await runtime.startSession(sessionId, "", cwd);
+
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "x-accel-buffering": "no",
+        "x-request-id": requestId,
+      });
+      // 建议客户端 1s 后重连，避免 EventSource 默认的长退避。
+      res.write("retry: 1000" + "\n\n");
+
+      const stream = openSessionEventStream(
+        session,
+        (event) => {
+          if (res.writableEnded) return;
+          res.write("id: " + event.seq + "\n" + "data: " + JSON.stringify(event) + "\n\n");
+        },
+        {
+          lastEventId: parseLastEventId(req.headers["last-event-id"] as string | undefined),
+          onHeartbeat: () => { if (!res.writableEnded) res.write(":" + "\n\n"); },
+        },
+      );
+      // 断开只释放订阅：Agent 继续执行，重连时以新快照对账。
+      res.on("close", () => stream.close());
       return;
     }
 

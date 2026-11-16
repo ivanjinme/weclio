@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1（模型配置）、A2.2c-2（Provider 凭据）已实施；A2.2c-3 起未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2、A3.2（事件流）已实施；A2.2c-3 与 A3.3 起未实施。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -100,14 +100,12 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 
 **A2 总验收：** 不启动/安装 Next 或 Electron，独立 Service 在仓库外完成上表全部现存能力；同一 SDK 行为基线通过。本阶段用隔离编译目录验证运行能力；独立生产依赖/Runtime 产物验收归 B2，不反向阻断 A2 合并，也不能仅凭源码入口就宣称分发已完成。
 
-### PR A3.2 — 保留重连/取消语义，明确不自动重发
+### PR A3.2 — 事件流、重连与取消（已实施）
 
-- **模块/修改：** Service events/state、`agent-event-wire`、Client stream、`useAgentSession`。复用既有 SSE、历史读取、运行状态查询与 UI reducer；保留先订阅后快照，必要的实例内 seq 只检测断档，断档后重读历史/状态，不建设事件日志或 replay 系统。
-- **恢复：** 页面重开/断线后重新获取持久消息和当前运行状态，不能只补当前 token；旧 timer/请求卸载时清理。Service 重启只恢复已持久化历史，不能恢复执行栈、内存队列或保证外部命令是否已完成，界面如实显示中断/结果不明。
-- **重试：** prompt/bash/new/fork/安装等副作用不做自动重发；响应丢失先读取现有 Session/运行状态，仍不能确认就提示用户，不承诺 exactly-once 或跨重启幂等。保留已有文件条件写/冲突检查；持久命令账本、通用结果查询和可靠重试延期到真实需求出现。
-- **取消：** 保留 abort/abort_bash/abort_compaction 与 pending UI 的原有行为；断开 Agent 订阅不取消任务，OAuth 等短流程沿用自身取消规则。
-- **依赖：** A2.2a–c + A3.1；不依赖迁移框架或持久回执。
-- **风险/收益：** 防宿主替换破坏已有恢复逻辑，不重写状态机。**验收：** 真实 HTTP 断开/重连、断线期间完成消息、订阅清理、取消竞态、响应丢失时不自动重发；不以持久日志/跨重启结果查询作为门槛。
+- **模块/修改：** 新增 `lib/agent/session-events.ts`（宿主无关）：先订阅后快照、快照期缓冲、`message_start` 去重、单调 `seq`、`Last-Event-ID` 解析、心跳与 `close()`；Next `app/api/agent/[id]/events` 与 Service `GET /v1/sessions/:id/events` 共用同一实现（原路由自带的快照/缓冲代码删除，避免两套漂移）。
+- **语义（已冻结到协议文档 §5）：** 重连不承诺事件回放，带 `Last-Event-ID` 时 `connected.resync=true` 并以快照对账；断连只释放订阅、不取消执行；取消仍走 `abort*` 命令；心跳为 SSE 注释行，`retry` 1s。
+- **测试：** `lib/agent/session-events.test.mjs`（9 项：订阅先于快照、快照去重、缓冲顺序、seq 单调、resync、噪声过滤、close 幂等、心跳启停、Last-Event-ID 解析）；Service smoke 覆盖真实 SSE（connected/seq/resync/401）；Next 路由测试改为断言委托与断开清理。
+- **未做：** 有界事件 replay 与持久事件日志仍属延期项；OAuth 登录的 SSE 归 A2.2c-3。
 
 ### PR A3.3 — 完整 Agent Client，本期只收口必要调用
 
@@ -144,7 +142,7 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1 ✅ → A2.2c-2 ✅ → A3.2 ⏭（含 A2.2c-3）→ A3.3 → A5
+A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1 ✅ → A2.2c-2 ✅ → A3.2 ✅ → A2.2c-3 ⏭ → A3.3 → A5
 
 B1 消费 A3.3；B2 消费 A2 的独立入口/能力
 B3 消费 B1/B2 + A3，接通 Local 生命周期和更新保护

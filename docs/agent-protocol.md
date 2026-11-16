@@ -61,6 +61,7 @@ GET    /v1/info                          需认证；ServiceInfo
 GET    /v1/sessions                      目录 + 运行中 ID
 GET    /v1/sessions/:id                  历史视图（?deferThinking / ?deferMedia）
 GET    /v1/sessions/:id/state            运行态（不创建实例）
+GET    /v1/sessions/:id/events           会话事件 SSE（id=seq，支持 Last-Event-ID）
 PATCH  /v1/sessions/:id                  改名 { name }
 DELETE /v1/sessions/:id                  删除并重挂子会话
 POST   /v1/sessions/titles               { ids } → 标题
@@ -104,18 +105,30 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 
 客户端通过 `basePath` 切换（`/api` → `/v1`），不改调用点。
 
-## 5. 未知字段政策
+## 5. 会话事件流
+
+`GET /v1/sessions/:id/events`（Next 侧为 `GET /api/agent/:id/events`）由 `lib/agent/session-events` 统一实现，两条宿主共用：
+
+1. **先订阅，再读快照**；快照发布期间到达的事件先缓冲，之后按序补发。
+2. 首事件为 `connected`，携带 `sessionId`、`isStreaming`、`resync` 与 `seq`。
+3. 若会话正在流式输出，紧接一条 `message_start` 携带当前 partial；快照已包含的 `message_start`/`message_update` 不重复发送。
+4. 每个事件带单调递增 `seq`，同时作为 SSE `id`。
+5. **重连不承诺事件回放**：带 `Last-Event-ID` 时 `connected.resync = true`，客户端应以快照重新对账（历史消息另走会话查询）。
+6. 断连只释放订阅，**不取消** Agent 执行；取消必须显式发送 `abort`/`abort_bash`/`abort_compaction`。
+7. 心跳为 SSE 注释行（默认 30s）；`retry` 建议 1s。
+
+## 6. 未知字段政策
 
 - 输入：未知字段不报错，但**不保证透传**；`parseAgentCommand()` 只输出已定义字段。
 - 输出：事件与结果必须白名单投影；新增字段需同时更新本文件、校验函数与测试。
 
-## 6. 版本与能力
+## 7. 版本与能力
 
 - `PROTOCOL_VERSION`（当前 `1`）表示 major；应用版本、Pi 版本只是实现元数据。
 - `ServiceInfo.protocol = { version, minClient }`；`negotiateProtocol()` 要求 major 相等且 `minClient <= clientProtocol`。
 - 协商失败必须在副作用前拒绝，不能靠版本字符串相等判断兼容。
 
-## 7. 客户端约定
+## 8. 客户端约定
 
 `createAgentClient({ baseUrl, basePath, headers, fetch, signal })`：
 
@@ -124,7 +137,7 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 - 支持 `AbortSignal`；中止错误原样抛出，不包装成协议错误。
 - 网络失败转为 `http_error`，保留 `cause`。
 
-## 8. 尚未包含
+## 9. 尚未包含
 
 **Provider OAuth 登录（`GET /v1/provider-auth/login/:provider`）仍在 Next 路由**：它是 SSE 长连接 + 手动 code 回调，需要 A3.2 的 SSE 基础设施与事件游标，届时一并迁入；当前 Service 只提供非 SSE 的凭据读写与登出。
 
