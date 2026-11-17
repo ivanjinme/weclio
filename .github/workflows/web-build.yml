@@ -1,0 +1,24 @@
+name: Web Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 仅验证网站 UI 构建；不打 npm 包，也不代表已验证线上后台或部署。
+      - name: Build Web UI
+        run: npm run build

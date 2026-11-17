@@ -1,5 +1,5 @@
 {
-  "manifestUrl": "https://github.com/ivanjinme/pi-web/releases/latest/download/desktop-update-manifest.json",
-  "updaterCacheDirName": "@wecliopi-web-updater",
+  "manifestUrl": "https://github.com/ivanjinme/weclio/releases/latest/download/desktop-update-manifest.json",
+  "updaterCacheDirName": "weclio-updater",
   "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAeVyP1gK7Ew5g5BEDPLostTKZdx3yEJyXDpmXJskHOks=\n-----END PUBLIC KEY-----\n"
 }

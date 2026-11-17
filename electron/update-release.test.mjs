@@ -16,7 +16,7 @@ async function project(t, extraMetadata = {}) {
   const root = join(base, "repo");
   const keyPath = join(base, "keys/key.pem");
   await mkdir(join(root, "electron"), { recursive: true });
-  await writeFile(join(root, "package.json"), JSON.stringify({ name: "@weclio/pi-web", repository: { url: "git+https://github.com/ivanjinme/pi-web.git" } }));
+  await writeFile(join(root, "package.json"), JSON.stringify({ name: "@weclio/web", repository: { url: "git+https://github.com/ivanjinme/weclio.git" } }));
   await writeFile(join(root, "electron/builder.json"), JSON.stringify({ extraMetadata }));
   return { base, root, keyPath, configPath: join(root, "resources/desktop-update.json") };
 }
@@ -53,8 +53,8 @@ test("initialization is idempotent, public only, and uses packager name not prod
   const secret = await readFile(p.keyPath, "utf8");
   const original = await readFile(p.configPath, "utf8");
   const config = JSON.parse(original);
-  assert.equal(config.manifestUrl, `https://github.com/ivanjinme/pi-web/releases/latest/download/${MANIFEST_NAME}`);
-  assert.equal(config.updaterCacheDirName, "@wecliopi-web-updater");
+  assert.equal(config.manifestUrl, `https://github.com/ivanjinme/weclio/releases/latest/download/${MANIFEST_NAME}`);
+  assert.equal(config.updaterCacheDirName, "@weclioweb-updater");
   assert.match(config.publicKey, /^-----BEGIN PUBLIC KEY-----/);
   assert.ok(!original.includes("PRIVATE KEY"));
   assert.ok(!original.includes(secret));
@@ -121,7 +121,7 @@ test("wrong key and config metadata changes cannot be silently overwritten", asy
   for (const change of [
     { manifestUrl: `https://evil.example/releases/latest/download/${MANIFEST_NAME}` },
     { manifestUrl: `https://github.com/other/repo/releases/latest/download/${MANIFEST_NAME}` },
-    { manifestUrl: `https://github.com/ivanjinme/pi-web/releases/latest/download/${MANIFEST_NAME}?x=1` },
+    { manifestUrl: `https://github.com/ivanjinme/weclio/releases/latest/download/${MANIFEST_NAME}?x=1` },
     { updaterCacheDirName: "wrong-updater" },
     { publicKey: originalKey.toString() },
   ]) {
@@ -181,7 +181,7 @@ test("signed payload verifies with runtime and hashes the actual installer and s
   assert.equal(first.sha256, await validateInstaller(files.installerPath));
   assert.equal(first.sha512, digest(bytes, "sha512", "base64"));
   assert.equal(first.blockmapSha256, digest(await readFile(files.blockmapPath), "sha256"));
-  assert.deepEqual(payload, { version: "1.2.3", installable: true, files: [{ url: "https://github.com/ivanjinme/pi-web/releases/download/desktop-v1.2.3/Weclio-1.2.3-x64-Setup.exe", sha512: first.sha512, size: bytes.length }] });
+  assert.deepEqual(payload, { version: "1.2.3", installable: true, files: [{ url: "https://github.com/ivanjinme/weclio/releases/download/desktop-v1.2.3/Weclio-1.2.3-x64-Setup.exe", sha512: first.sha512, size: bytes.length }] });
   assert.ok(!first.manifest.includes("PRIVATE KEY"));
   assert.ok(!Buffer.from(envelope.payload, "base64").toString().includes("PRIVATE KEY"));
   bytes[100] ^= 1;

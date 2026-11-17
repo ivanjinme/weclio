@@ -309,7 +309,7 @@ test("packaged configuration is passed directly to the signed installer provider
   });
   const Custom = createSignedProvider(Provider, config, new AbortController().signal);
   await assert.rejects(new Custom({}, {}, {}).getLatestVersion(), /Manifest HTTP 404/);
-  assert.deepEqual(requested, ["https://github.com/ivanjinme/pi-web/releases/latest/download/desktop-update-manifest.json"]);
+  assert.deepEqual(requested, ["https://github.com/ivanjinme/weclio/releases/latest/download/desktop-update-manifest.json"]);
 });
 
 test("configured updater cache is a single safe directory name", async (t) => {
@@ -320,8 +320,8 @@ test("configured updater cache is a single safe directory name", async (t) => {
     await writeFile(path, JSON.stringify({ manifestUrl: "https://example.com/feed.json", publicKey: pem, updaterCacheDirName }));
     await assert.rejects(loadUpdateConfig({ packaged: true, resourcesPath: root }), /cache directory/);
   }
-  await writeFile(path, JSON.stringify({ manifestUrl: "https://example.com/feed.json", publicKey: pem, updaterCacheDirName: "@wecliopi-web-updater" }));
-  assert.equal((await loadUpdateConfig({ packaged: true, resourcesPath: root })).updaterCacheDirName, "@wecliopi-web-updater");
+  await writeFile(path, JSON.stringify({ manifestUrl: "https://example.com/feed.json", publicKey: pem, updaterCacheDirName: "@weclioweb-updater" }));
+  assert.equal((await loadUpdateConfig({ packaged: true, resourcesPath: root })).updaterCacheDirName, "@weclioweb-updater");
 });
 
 test("IPC restricts owning window, app origin and main frame; restart is explanation only", async () => {

@@ -24,6 +24,7 @@
     "!node_modules/**/*"
   ],
   "extraMetadata": {
+    "name": "weclio",
     "main": "electron/main.mjs",
     "description": "Weclio - Build an AI Scientist"
   },
