@@ -15,6 +15,7 @@
     "electron/update-signature.mjs",
     "electron/update-install.mjs",
     "electron/local-service.mjs",
+    "electron/service-control.mjs",
     "electron/node-runtime.mjs",
     "lib/agent/protocol/version-value.mjs",
     "electron/runtime.mjs",

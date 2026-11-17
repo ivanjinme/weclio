@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { AgentRuntime } from "../../rpc-manager";
 import { configureHttpDispatcher } from "../../http-dispatcher";
 import { PROTOCOL_VERSION } from "../protocol/version";
 import { resolveServiceConfig, type ServiceConfig } from "./config";
 import { startAgentServiceHost, type AgentServiceHost } from "./host";
+import { handleMaintenanceLine } from "./maintenance-control";
 
 const IDENTITY_FILE = "service.json";
 const OWNER_FILE = "owner.json";
@@ -153,11 +155,15 @@ export async function main(): Promise<void> {
   process.once("SIGTERM", () => { void shutdown("signal"); });
   process.once("SIGINT", () => { void shutdown("signal"); });
   // Windows 没有可等待的 SIGTERM；标准输入上的显式控制行是可移植的停止路径。
-  process.stdin.setEncoding("utf8");
-  process.stdin.on("data", (chunk: string) => {
-    if (chunk.split(/\r?\n/).some((line) => line.trim() === "shutdown")) void shutdown("control");
+  const managed = process.env.WECLIO_AGENT_PARENT_STDIN === "1";
+  // readline 保留跨 chunk 的完整行，不能把半条 JSON/关停命令当成另一条请求。
+  const control = createInterface({ input: process.stdin, terminal: false, crlfDelay: Infinity });
+  control.on("line", (line: string) => {
+    if (line.trim() === "shutdown") { void shutdown("control"); return; }
+    if (!managed || closing) return;
+    const reply = handleMaintenanceLine(service.runtime, line);
+    if (reply) process.stdout.write(`WECLIO_AGENT_CONTROL ${JSON.stringify(reply)}\n`);
   });
   // 只有受 Desktop 管理的实例才把父进程控制管道关闭视为退出；独立部署不能依赖 stdin。
-  if (process.env.WECLIO_AGENT_PARENT_STDIN === "1") process.stdin.once("end", () => { void shutdown("control"); });
-  process.stdin.resume();
+  if (managed) control.once("close", () => { void shutdown("control"); });
 }

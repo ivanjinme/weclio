@@ -32,8 +32,8 @@ Service 就绪后才启动 GUI；Service 退出、Electron 非零退出或 logo 
 
 `dev:lan` 仅启动 UI，不启动或公开 Agent；必须显式配置所选 Service 与来源策略。未配置时只显示提示。
 `start` / `start:lan` / `weclio-web` 仅服务已构建的 Next UI，不启动 Agent，并拒绝含旧业务路由或 instrumentation 的编译产物。
-Desktop 候选资源已接线，旧 `production.mjs` / Next server 启动链已移除；更新交接 P5 与真实安装/升级 P6 尚未完成，
-不得把当前分支当作可发布安装包。
+Desktop 候选资源已接线，旧 `production.mjs` / Next server 启动链已移除；更新准入（P5）已接自有 Service 私有管道，
+真实安装/升级与发行（P6）尚未完成，不得把当前分支当作可发布安装包。
 
 ## Local Desktop Candidate Build
 

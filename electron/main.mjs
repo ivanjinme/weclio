@@ -52,17 +52,25 @@ if (!holdsSingleInstance) {
 }
 let mainWindow = null;
 let localService = null;
+let agent = null;
 const startup = new AbortController();
 let quitting = false;
 let updates = null;
 const installer = createUpdateInstaller({
   app, dialog, getService: () => updates, getWindow: () => mainWindow,
-  // Next/UI 无法代表独立 Service 的忙碌状态；未接真实门禁时安装器必须拒绝。
-  getGate: () => undefined,
+  // 更新准入必须由自有 Service 的控制管道回答；开发态或 Service 不可用时返回 undefined，安装器拒绝。
+  getGate: () => localService?.control,
   restoreWindow: async () => {
+    // 安装失败后 Main 可能已停掉自有 Service；窗口恢复前必须先重新拉起。
+    if (app.isPackaged && (!localService || serviceStopped)) {
+      serviceStopped = false;
+      await startOwnedAgent();
+    }
     if (!mainWindow || mainWindow.isDestroyed()) {
       const window = createMainWindow();
       await window.loadURL(APP_ENTRY_URL);
+    } else if (!isAppUrl(mainWindow.webContents.getURL())) {
+      await mainWindow.loadURL(APP_ENTRY_URL);
     }
   },
 });
@@ -98,9 +106,19 @@ function readAgentService() {
 }
 
 app.on("window-all-closed", () => { if (!installer.isClosing()) app.quit(); });
+// 退出事件不能 await：先否决一次，等自有 Service 真正停止后再放行，
+// 避免安装器替换文件时服务仍在写盘。
+let serviceStopped = false;
 app.on("before-quit", (event) => {
   // 标准 updater 可能已安排退出；启动失败的恢复流程必须能否决这次退出。
-  if (installer.isRecovering()) event.preventDefault();
+  if (installer.isRecovering()) { event.preventDefault(); return; }
+  if (serviceStopped || !localService) return;
+  event.preventDefault();
+  void (async () => {
+    try { await localService.stop(); }
+    catch (error) { console.error("[desktop] Service 停止失败:", error.message); }
+    finally { serviceStopped = true; app.quit(); }
+  })();
 });
 // before-quit 之后仍可能被 renderer 否决；只在真正退出时停止服务。
 app.on("will-quit", () => {
@@ -216,38 +234,59 @@ function createMainWindow() {
   return window;
 }
 
+/**
+ * 自有 Service 的唯一起点：首次启动与更新失败恢复共用。
+ * 恢复时必须重新拉起，否则窗口回来了但没有任何可用后端。
+ */
+async function startOwnedAgent() {
+  const toolsRoot = await resolveDesktopTools({ resourcesPath: process.resourcesPath, storeBase: process.env.LOCALAPPDATA, signal: startup.signal });
+  const started = await startLocalAgentService({
+    resourcesPath: process.resourcesPath, stateDir: join(app.getPath("userData"), "agent-service"),
+    logsPath: app.getPath("logs"), appVersion: app.getVersion(), toolsRoot,
+    signal: startup.signal, onUnexpectedExit: (error) => { if (!quitting) showError(error.message); },
+  });
+  agent = started;
+  localService = started;
+  serviceStopped = false;
+  return started;
+}
+
 if (holdsSingleInstance) app.whenReady().then(async () => {
   const window = createMainWindow();
-  let agent;
   if (app.isPackaged) {
+    // 先显示可关闭的启动页；准备内置资源不能让首次启动看起来毫无响应。
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(desktopStartupPage())}`);
-    const toolsRoot = await resolveDesktopTools({ resourcesPath: process.resourcesPath, storeBase: process.env.LOCALAPPDATA, signal: startup.signal });
-    localService = await startLocalAgentService({
-      resourcesPath: process.resourcesPath, stateDir: join(app.getPath("userData"), "agent-service"),
-      logsPath: app.getPath("logs"), appVersion: app.getVersion(), toolsRoot,
-      signal: startup.signal, onUnexpectedExit: (error) => { if (!quitting) showError(error.message); },
-    });
-    agent = localService;
+    await startOwnedAgent();
   } else agent = readAgentService();
-  // 静态资产只从构建目录读取；协议不代理任何 Agent API。
-  protocol.handle(APP_SCHEME, createAppProtocolHandler(agent.uiDir, { serviceUrl: agent.baseUrl }));
+  const current = () => {
+    if (!agent) throw new Error("Agent Service 不可用");
+    return agent;
+  };
+  // 静态资产只从构建目录读取；协议不代理任何 Agent API，重启后自动指向新实例。
+  protocol.handle(APP_SCHEME, (request) => createAppProtocolHandler(current().uiDir, { serviceUrl: current().baseUrl })(request));
   const assertAppSender = (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !isAppUrl(event.senderFrame?.url ?? "")) throw new Error("Untrusted desktop sender");
   };
   ipcMain.handle("agent-service:config", (event) => {
     assertAppSender(event);
-    return { baseUrl: agent.baseUrl, token: agent.token };
+    const service = current();
+    return { baseUrl: service.baseUrl, token: service.token };
   });
   ipcMain.handle("resource:download", (event, resourceUrl) => {
     assertAppSender(event);
     if (typeof resourceUrl !== "string" || resourceUrl.length > 20_000) throw new Error("Invalid desktop resource URL");
     const url = new URL(resourceUrl);
-    if (url.origin !== agent.baseUrl || url.username || url.password || url.pathname !== "/v1/resources/content" || url.hash || url.searchParams.size !== 1 || !url.searchParams.get("ticket")) throw new Error("Invalid desktop resource URL");
+    if (url.origin !== current().baseUrl || url.username || url.password || url.pathname !== "/v1/resources/content" || url.hash || url.searchParams.size !== 1 || !url.searchParams.get("ticket")) throw new Error("Invalid desktop resource URL");
     // 不放宽主窗口导航，也不接收路径或请求头；文件授权仍由 Service 兑换票据时检查。
     mainWindow.webContents.downloadURL(url.href);
   });
   if (quitting) return;
-  await window.loadURL(APP_ENTRY_URL);
+  // 更新安装会关闭窗口并退出 Main；期间自有 Service 必须先有序退出，避免安装器替换文件时仍有写入者。
+  try { await window.loadURL(APP_ENTRY_URL); }
+  catch (error) {
+    if (!installer.isClosing()) throw error;
+    return;
+  }
   // 页面就绪后再启动后台检查，不阻塞首屏；缺少配置时保持静默。
   void initializeUpdates({ app, publish: (state) => {
     if (mainWindow && !mainWindow.isDestroyed() && isAppUrl(mainWindow.webContents.getURL())) mainWindow.webContents.send(UPDATE_CHANNELS.state, state);

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { verifyNodeRuntime } from "./node-runtime.mjs";
 import { createServiceRuntimeEnvironment } from "./runtime.mjs";
 import { PROTOCOL_VERSION } from "../lib/agent/protocol/version-value.mjs";
+import { createServiceControl } from "./service-control.mjs";
 
 /** 安装版只用资源目录里的独立 Node 启动自有 Service，不查系统 Node 或连接陌生进程。 */
 export async function startLocalAgentService({ resourcesPath, stateDir, logsPath, appVersion, toolsRoot, signal, onUnexpectedExit = () => {}, env = process.env }) {
@@ -30,6 +31,8 @@ export async function startLocalAgentService({ resourcesPath, stateDir, logsPath
   let ready = false;
   let stdout = "";
   let token;
+  let lineBuffer = "";
+  const control = createServiceControl({ write: (line) => child.stdin.write(line) });
   const record = (chunk) => {
     const text = String(chunk);
     try { appendFileSync(logFile, token ? text.replaceAll(token, "[redacted]") : text); }
@@ -39,6 +42,7 @@ export async function startLocalAgentService({ resourcesPath, stateDir, logsPath
     child.once("exit", (code) => resolve(code));
     child.once("error", () => resolve(1));
   });
+  void exited.then(() => control.disconnect());
   const forceStop = () => {
     if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
     if (process.platform === "win32") {
@@ -85,7 +89,15 @@ export async function startLocalAgentService({ resourcesPath, stateDir, logsPath
       child.once("error", (error) => finish(error));
       child.stdout.on("data", (chunk) => {
         record(chunk);
-        stdout += chunk.toString();
+        lineBuffer += chunk.toString();
+        let newline;
+        while ((newline = lineBuffer.indexOf("\n")) !== -1) {
+          const line = lineBuffer.slice(0, newline).trim();
+          lineBuffer = lineBuffer.slice(newline + 1);
+          // 维护回复走同一 stdout；未就绪前不再交给 READY 解析器。
+          if (control.onLine(line)) continue;
+          stdout += `${line}\n`;
+        }
         let end;
         while ((end = stdout.indexOf("\n")) !== -1) {
           const line = stdout.slice(0, end).trim();
@@ -110,7 +122,7 @@ export async function startLocalAgentService({ resourcesPath, stateDir, logsPath
     if (info.instanceId !== identity.instanceId || info.serviceId !== identity.serviceId || owner.pid !== child.pid || owner.instanceId !== identity.instanceId || info.protocol?.version !== PROTOCOL_VERSION || !Number.isInteger(info.protocol.minClient) || info.protocol.minClient < 1 || info.protocol.minClient > PROTOCOL_VERSION) throw new Error("Agent Service 身份或协议不匹配，拒绝连接。");
     if (child.exitCode !== null || child.signalCode !== null) throw new Error("Agent Service exited during startup verification");
     ready = true;
-    return { baseUrl: identity.url, token, uiDir, pid: child.pid, stop, logFile };
+    return { baseUrl: identity.url, token, uiDir, pid: child.pid, stop, logFile, control };
   } catch (error) {
     await stop();
     throw error;

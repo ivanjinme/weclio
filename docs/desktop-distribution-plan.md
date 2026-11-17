@@ -66,10 +66,10 @@ Weclio
 | **P2** | 退役 Web 进程内 Agent（Next 只留 UI） | Web 内 `import rpc-manager` = 0；`next start` 只提供 UI |
 | **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 |
 | **P4** | 捆绑 Runtime 与生产闭包（原 B2） | 仓库外候选不依赖系统 Node/根依赖；真实安装验证在 P6 |
-| **P5** | 生命周期与更新门禁（原 B3） | 忙任务不被静默终止；更新失败可恢复 |
+| **P5** | 生命周期与更新门禁（原 B3） | 忙任务不被静默终止；更新失败可恢复（已完成，见下方记录） |
 | **P6** | Desktop 安装候选验证、升级与发行（原 B4/B5） | 安装包无 Next Server；真实安装/升级不丢数据；不要求本轮部署 Web/VM |
 
-**当前：P1 用户已明确验收；P2/P3/P4 已完成代码及相应构建/隔离回归。P5 未实施，尚不能发行。**
+**当前：P1 用户已明确验收；P2/P3/P4/P5 已完成代码与相应隔离回归。P6（真实安装/升级/发行）未开始，尚不能发行。**
 
 - 浏览器已验证侧栏、历史、模型设置；隔离本机模型 fixture 已验证新建、流式聊天、Service 重启后的历史恢复/续聊。
 - 测试代理强制断开真实 SSE 后，浏览器自动恢复并携带 `Last-Event-ID`；XHR 上传在隔离工作区真实落盘。
@@ -102,6 +102,15 @@ Weclio
 - 仓库外真实工具循环、TS 扩展 extra dependency/reload、SDK HTML exporter 与 WASM resize worker通过；真实原生候选聊天、SVG/DOCX/PDF/Range、音频元数据、原生下载字节比对通过。
 - 保持严格主窗口导航；下载仅经窄 IPC 交给已选 Service 的只读 Ticket URL，不开放任意 HTTP/FS。只允许受信主窗口主 frame。
 - 普通退出的空闲清理已验证；完整 busy/update/draft/失败恢复留 P5。详见 [P4 记录](p4-production-desktop.md)。
+
+## P5 实施记录
+
+- 更新准入改为自有子进程私有管道：`inspect`/`lock`/`unlock` 同步判定并复用 `Admission` + `hasBusyTasks()`；只有托管实例（`WECLIO_AGENT_PARENT_STDIN=1`）开放，业务 Bearer 不获得管理能力。
+- Host 侧按 id 关联、按 action 校验状态，超时/断开/畸形回复一律拒绝；`getGate()` 仅在自有 Service 存在时可用，否则安装器拒绝安装。
+- 退出改为 `before-quit` 否决一次、等 Service 停止后再 `quit()`，避免安装器替换文件时有写入者。
+- 安装失败恢复会先重启自有 Service 再重开窗口。
+- 真实产物验证：空闲通过、锁定后拒绝新任务但读取可用、解锁恢复、关停清除 owner 记录。详见 [P5 记录](p5-update-admission.md)。
+- 未完成：真实 NSIS 安装与 A→B 升级、安装失败恢复的进程级回归（P6）。
 
 ## 4. B2 — Local Agent Service 打包
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 const mainUrl = new URL("./main.mjs", import.meta.url).href;
@@ -56,7 +57,7 @@ export class BrowserWindow extends EventEmitter {
 
 function runMain(check, { platform = process.platform, setup = "", packaged = false, startupFailure = false } = {}) {
   const mockUrl = `data:text/javascript,${encodeURIComponent(mock)}`;
-  const serviceMock = `data:text/javascript,${encodeURIComponent(`export const starts=[]; export let stops=0; export async function startLocalAgentService(options){ starts.push(options); if(${startupFailure}) throw new Error('fixture local service failed'); return {baseUrl:'http://127.0.0.1:18890',token:'owned-token',uiDir:'fixture/ui',stop:async()=>{stops++}}; }`)}`;
+  const serviceMock = `data:text/javascript,${encodeURIComponent(`export const starts=[]; export let stops=0; export const control={inspect:async()=>'ready',lock:async()=>'ready',unlock:async()=>{}}; export async function startLocalAgentService(options){ starts.push(options); if(${startupFailure}) throw new Error('fixture local service failed'); return {baseUrl:'http://127.0.0.1:1889'+starts.length,token:'owned-token',uiDir:'fixture/ui',control,stop:async()=>{stops++}}; }`)}`;
   const toolsMock = `data:text/javascript,${encodeURIComponent("export async function resolveDesktopTools(){return 'fixture-tools'}")}`;
   const script = `
     import assert from 'node:assert/strict';
@@ -253,6 +254,31 @@ test("packaged Desktop starts its owned bundled Service before exposing static U
     assert.equal(local.stops,1);
     assert.equal(local.starts[0].signal.aborted,true);
     assert.equal(ipcMain.handlers.has('agent-service:config'),false);
+  `, {packaged:true});
+});
+
+test("installer failure recovery restarts the owned Service before the window returns", async () => {
+  // 结构约束：恢复窗口前必须重新拉起自有 Service，否则会出现「窗口在、后端没了」。
+  const source = await readFile(new URL("./main.mjs", import.meta.url), "utf8");
+  const restore = source.slice(source.indexOf("restoreWindow: async () => {"), source.indexOf("const removeUpdateBridge"));
+  assert.match(restore, /serviceStopped/);
+  assert.match(restore, /await startOwnedAgent\(\)/);
+  assert.ok(restore.indexOf("await startOwnedAgent()") < restore.indexOf("createMainWindow"), "Service must be running before the window is recreated");
+});
+
+test("quit waits for the owned Service to stop before the installer may proceed", () => {
+  runMain(`
+    const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+    app.emit('before-quit', event);
+    assert.equal(event.defaultPrevented, true, 'first quit is vetoed until the Service exits');
+    assert.equal(local.stops, 1);
+    await setImmediate();
+    await setImmediate();
+    assert.ok(app.quits >= 1, 'quit is re-requested after the Service stopped');
+    const second = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+    app.emit('before-quit', second);
+    assert.equal(second.defaultPrevented, false, 'subsequent quit is allowed through');
+    assert.equal(local.stops, 1, 'the Service is stopped exactly once');
   `, {packaged:true});
 });
 

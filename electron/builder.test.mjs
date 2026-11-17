@@ -35,7 +35,7 @@ test("installer updater packages only its runtime modules, not obsolete applicat
   assert.deepEqual(config.files, [
     "electron/main.mjs", "lib/startup-splash.mjs", "electron/navigation.mjs", "electron/protocol.mjs", "electron/preload.cjs",
     "electron/updates.mjs", "electron/update-signature.mjs", "electron/update-install.mjs",
-    "electron/local-service.mjs", "electron/node-runtime.mjs", "lib/agent/protocol/version-value.mjs",
+    "electron/local-service.mjs", "electron/service-control.mjs", "electron/node-runtime.mjs", "lib/agent/protocol/version-value.mjs",
     "electron/runtime.mjs", "electron/toolsets.mjs", "LICENSE", "!node_modules/**/*",
   ]);
   assert.deepEqual(config.extraResources.find((entry) => entry.from === "resources"), { from: "resources", to: ".", filter: ["desktop-update.json"] });

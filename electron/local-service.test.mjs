@@ -22,7 +22,7 @@ import {createServer} from 'node:http'; import {writeFileSync} from 'node:fs'; i
 const state=process.env.WECLIO_AGENT_STATE_DIR;
 writeFileSync(join(state,'seen.json'), JSON.stringify({executable:process.execPath,electron:process.env.ELECTRON_RUN_AS_NODE,options:process.env.NODE_OPTIONS,path:process.env.PATH,origins:process.env.WECLIO_AGENT_ALLOWED_ORIGINS,parent:process.env.WECLIO_AGENT_PARENT_STDIN}));
 writeFileSync(join(state,'service-token'),'fixture-private-token');
-process.stdin.setEncoding('utf8'); process.stdin.on('data',line=>{if(line.includes('shutdown'))process.exit(0)});process.stdin.resume();
+process.stdin.setEncoding('utf8');let pending='';process.stdin.on('data',chunk=>{pending+=chunk;let i;while((i=pending.indexOf(String.fromCharCode(10)))!==-1){const line=pending.slice(0,i);pending=pending.slice(i+1);if(line.trim()==='shutdown')process.exit(0);const request=JSON.parse(line);const status=request.action==='inspect'?process.env.FIXTURE_INSPECT:request.action==='lock'?process.env.FIXTURE_LOCK:'unlocked';process.stdout.write('WECLIO_AGENT_CONTROL '+JSON.stringify({id:request.id,status,chunked:true}).slice(0,1));setTimeout(()=>process.stdout.write(JSON.stringify({id:request.id,status}).slice(1)+String.fromCharCode(10)),5)}});process.stdin.resume();
 const server=createServer((req,res)=>{
   if(${JSON.stringify(mode)}==='unauthorized'){res.writeHead(403);res.end('{}');return;}
   res.setHeader('content-type','application/json');res.end(JSON.stringify({serviceId:'service',instanceId:${JSON.stringify(mode)}==='identity'?'foreign':'instance',protocol:{version:${JSON.stringify(mode)}==='protocol'?99:1,minClient:1}}));
@@ -37,7 +37,7 @@ server.listen(0,'127.0.0.1',()=>{
 writeFileSync(join(service,'entry.mjs'), code);
 const {startLocalAgentService}=await import(${JSON.stringify(moduleUrl)});
 const controller=new AbortController();
-const options={resourcesPath:root,stateDir:join(root,'state'),logsPath:join(root,'logs'),appVersion:'test',toolsRoot:root,signal:controller.signal,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',NODE_OPTIONS:'--require forbidden',NODE_PATH:'forbidden'}};
+const options={resourcesPath:root,stateDir:join(root,'state'),logsPath:join(root,'logs'),appVersion:'test',toolsRoot:root,signal:controller.signal,env:{...process.env,FIXTURE_INSPECT:'busy',FIXTURE_LOCK:'ready',ELECTRON_RUN_AS_NODE:'1',NODE_OPTIONS:'--require forbidden',NODE_PATH:'forbidden'}};
 let started;
 try {
   ${check}
@@ -60,7 +60,11 @@ const seen=JSON.parse(readFileSync(join(root,'state/seen.json'),'utf8'));
 assert.equal(seen.executable,process.execPath);
 assert.equal(seen.electron,undefined);assert.equal(seen.options,undefined);
 assert.equal(seen.origins,'weclio://app');assert.equal(seen.parent,'1');
+assert.equal(await started.control.inspect(),'busy');
+assert.equal(await started.control.lock(),'ready');
+assert.equal(await started.control.unlock(),'unlocked');
 await started.stop(); await started.stop();
+await assert.rejects(started.control.inspect(),/unavailable/);
 assert.throws(()=>process.kill(started.pid,0),/ESRCH/);
 `);
 });
