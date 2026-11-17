@@ -33,5 +33,9 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     target: "chrome130",
+    // 静态 Desktop 从本地磁盘加载，没有下载成本；index 包约 2.9MB（gzip 929KB）是当前基线，
+    // 包含 React、组件库与 Markdown 渲染依赖。Mermaid/编辑器已按需分包。
+    // 真正的降幅需要把消息渲染器改成按需加载（会影响 Web），不能在配置层伪装。
+    chunkSizeWarningLimit: 3000,
   },
 });
