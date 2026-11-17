@@ -25,20 +25,15 @@
     │                └───────────────────────────┘     │
     └──────────────────────────────────────────────────┘
 
-Deployment:
+Deployment (future direction — only Local ships today; Remote and Scale are on the way):
   Local  → Agent Service on user's machine
   Remote → Dedicated VM / container / sandbox per user
   Scale  → Multiple isolated runtime environments,
            each with its own Agent Service
 ```
 
-- Next serves UI only. All business APIs, execution, persistence and provider configuration belong to the independent Agent Service; no Next proxy/fallback.
 - Desktop loads a Vite static build through the `weclio://app` protocol and talks HTTP/SSE to the Service directly; it has no UI server process and no loopback HTTP page trust.
 - AgentRuntime is explicitly owned by the Service host, not a Next/HMR singleton. UI requires an explicitly selected Service; the Desktop host supplies that selection through a restricted IPC bridge.
-- Shared services have no Next.js/Electron dependencies.
-- Hosts own transport and lifecycle; shared services own business logic.
-- Packaged Desktop starts its own Service with the pinned bundled Node/npm, never system Node or `ELECTRON_RUN_AS_NODE`; only development may use system Node.
-- Service and updater Host have separate runtime dependency closures; Desktop contains no Next server. VM/standalone deployment is not a current release gate.
 - Pi owns agent execution, session persistence/tree semantics, and model-context construction. Do not reimplement them.
 
 ## Current Code Entrypoints
