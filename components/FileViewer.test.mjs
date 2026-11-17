@@ -129,9 +129,9 @@ for (const name of ["ImageViewer", "AudioViewer", "DocumentViewer"]) {
 }
 
 test("watch connected events include the same revision fields as change events", async () => {
-  const route = await readFile(new URL("../app/api/files/[...path]/route.ts", import.meta.url), "utf8");
+  const route = await readFile(new URL("../lib/agent/service/host.ts", import.meta.url), "utf8");
   assert.match(route, /send\("connected", \{ filePath, mtime: stat\.mtime\.toISOString\(\), size: stat\.size \}\)/);
-  assert.match(route, /send\("change", \{ mtime: s\.mtime\.toISOString\(\), size: s\.size \}\)/);
+  assert.match(route, /send\("change", \{ mtime: next\.mtime\.toISOString\(\), size: next\.size \}\)/);
 });
 
 test("FileViewer forwards active to every retained viewer", () => {

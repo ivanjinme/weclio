@@ -1,12 +1,7 @@
-// 宿主路由表：同一 AgentClient 接口对两种宿主生成各自的 URL。
-// Next 宿主保留历史形态；Service 使用版本化的 REST 形态（/v1）。
-// 路由由「基址 + profile」决定，不读全局状态，因此每个 Client 可以指向不同环境。
-
-export type HostProfile = "next" | "service";
+// 独立 Service 路由表：仅由显式基址决定，不读全局状态。
 
 /** 历史 UI 路径只在客户端转换，Service 不保留 Next 别名。 */
-export function resolveApiPath(path: string, profile: HostProfile, method = "GET"): string {
-  if (profile === "next") return path;
+export function resolveApiPath(path: string, method = "GET"): string {
   const boundary = path.search(/[?#]/);
   const pathname = boundary < 0 ? path : path.slice(0, boundary);
   const suffix = boundary < 0 ? "" : path.slice(boundary);
@@ -38,7 +33,6 @@ export interface ApiBase {
 }
 
 export interface HostRoutes {
-  readonly profile: HostProfile;
   commands: (sessionId: string) => string;
   events: (sessionId: string, cwd?: string | null) => string;
   runningEvents: () => string;
@@ -54,31 +48,26 @@ function join(base: ApiBase, path: string): string {
   return `${base.baseUrl}${base.basePath}${suffix}`;
 }
 
-const nextRoutes = (base: ApiBase): HostRoutes => ({
-  profile: "next",
-  commands: (sessionId) => join(base, `/agent/${encode(sessionId)}`),
-  events: (sessionId) => join(base, `/agent/${encode(sessionId)}/events`),
-  runningEvents: () => join(base, "/agent/running/events"),
-  state: (sessionId) => join(base, `/sessions/${encode(sessionId)}/state`),
-});
-
-const serviceRoutes = (base: ApiBase): HostRoutes => ({
-  profile: "service",
-  commands: (sessionId) => join(base, `/sessions/${encode(sessionId)}/commands`),
-  events: (sessionId, cwd) => join(base, `/sessions/${encode(sessionId)}/events${cwd ? `?cwd=${encode(cwd)}` : ""}`),
-  runningEvents: () => join(base, "/events"),
-  state: (sessionId) => join(base, `/sessions/${encode(sessionId)}/state`),
-});
-
-/** 由 API 基址推断宿主：显式 /v1 前缀即独立 Service。 */
-export function resolveHostProfile(basePath: string): HostProfile {
-  return basePath.replace(/\/+$/, "") === "/v1" ? "service" : "next";
+export function validateServiceBasePath(basePath: string): void {
+  if (!basePath.startsWith("/") || basePath.startsWith("//") || /[?#\\]/.test(basePath)) {
+    throw new Error(`basePath must start with "/" and contain only a path: ${basePath}`);
+  }
+  const normalized = new URL(basePath, "http://agent.invalid").pathname;
+  if (/^\/api(?:\/|$)/i.test(decodeURIComponent(normalized))) {
+    throw new Error("The retired /api backend is not supported; select an Agent Service");
+  }
 }
 
-export function createRoutes(profile: HostProfile, base: ApiBase): HostRoutes {
-  return profile === "service" ? serviceRoutes(base) : nextRoutes(base);
+export function createRoutes(base: ApiBase): HostRoutes {
+  validateServiceBasePath(base.basePath);
+  return {
+    commands: (sessionId) => join(base, `/sessions/${encode(sessionId)}/commands`),
+    events: (sessionId, cwd) => join(base, `/sessions/${encode(sessionId)}/events${cwd ? `?cwd=${encode(cwd)}` : ""}`),
+    runningEvents: () => join(base, "/events"),
+    state: (sessionId) => join(base, `/sessions/${encode(sessionId)}/state`),
+  };
 }
 
 export function routesForBase(base: ApiBase): HostRoutes {
-  return createRoutes(resolveHostProfile(base.basePath), base);
+  return createRoutes(base);
 }

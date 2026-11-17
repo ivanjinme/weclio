@@ -1,6 +1,5 @@
-import { apiUrl, getApiBase } from "./api-base";
+import { apiUrl } from "./api-base";
 import { apiFetch } from "./api-fetch";
-import { resolveHostProfile } from "./agent/routes";
 import { encodeFilePathForApi, getFileName } from "./file-paths";
 
 export type ResourceKind = "read" | "preview" | "download";
@@ -13,7 +12,7 @@ export interface ResourceRequest {
 }
 export interface ResourceLease {
   url: string;
-  transport: "direct" | "blob" | "ticket";
+  transport: "blob" | "ticket";
   expiresAt?: number;
   release(): void;
 }
@@ -84,11 +83,6 @@ async function acquire(request: ResourceRequest, options: ResourceOptions): Prom
   if (request.source === "bash-output" && (request.kind !== "download" || !request.sessionId)) {
     throw new ResourceRequestError("Bash output download requires a session");
   }
-  // 旧 Next 宿主仍同源；不引入第二个票据后端或代理。
-  if (resolveHostProfile(getApiBase().basePath) === "next") {
-    return { url: fileResourceApiUrl(request), transport: "direct", release() {} };
-  }
-
   // SVG 的安全响应头不能随着 Blob 继承，保留原生 URL + 服务端 CSP。
   const allowBlob = !options.native && request.kind !== "download" && !/\.svg$/i.test(request.filePath);
   if (allowBlob) {

@@ -184,12 +184,3 @@ export function createOAuthLoginManager(): OAuthLoginManager {
     pendingCount: () => registry.size,
   };
 }
-
-declare global {
-  var __weclioOAuthLoginManager: OAuthLoginManager | undefined;
-}
-
-/** Next 热更新后仍复用同一份挂起登录状态。 */
-export function getDefaultOAuthLoginManager(): OAuthLoginManager {
-  return globalThis.__weclioOAuthLoginManager ??= createOAuthLoginManager();
-}

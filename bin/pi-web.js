@@ -14,7 +14,7 @@ const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const fs = require("fs");
+const { assertUiOnlyBuild } = require("./ui-build");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseLaunchOptions } = require("./pi-web-options");
 
@@ -39,8 +39,10 @@ try {
 const { port, hostname, openBrowser } = parseLaunchOptions();
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
-if (!fs.existsSync(nextDir)) {
-  console.error("Build artifacts not found. Please report this issue.");
+try {
+  assertUiOnlyBuild(nextDir);
+} catch (error) {
+  console.error(error.message);
   process.exit(1);
 }
 

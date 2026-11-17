@@ -44,7 +44,7 @@ try {
   }
   await rm(server, { recursive: true, force: true, maxRetries: 3 });
   await mkdir(server, { recursive: true });
-  for (const name of ["app", "components", "hooks", "lib", "public", "instrumentation.ts", "proxy.ts", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "package.json", "LICENSE"]) {
+  for (const name of ["app", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "package.json", "LICENSE"]) {
     await cp(join(root, name), join(server, name), { recursive: true });
   }
   await cp(join(root, "electron", "packages.mjs"), join(server, "desktop-packages.mjs"));

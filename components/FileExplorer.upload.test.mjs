@@ -19,7 +19,7 @@ const uploadFiles = new Function("apiUrl", "agentAuthHeaders", "encodeFilePathFo
   apiUrl, agentAuthHeaders, encodeFilePathForApi,
 );
 
-test("XHR uploads attach selected Service auth and retain multipart body and progress; Next stays anonymous", async (t) => {
+test("XHR uploads attach scoped Service auth, retain multipart progress and refuse implicit backends", async (t) => {
   t.after(() => { resetApiBase(); resetAgentCredential(); });
   const requests = [];
   class FakeXHR {
@@ -58,10 +58,13 @@ test("XHR uploads attach selected Service auth and retain multipart body and pro
   assert.equal(requests[0].body.get("files").name, "sample.txt");
   assert.deepEqual(progress, [50]);
 
-  resetApiBase();
   resetAgentCredential();
+  configureApiBase({ basePath: "/v1" });
   await uploadFiles("/workspace", [file], "skip", () => {});
-  assert.match(requests[1].url, /^\/api\/files\//);
+  assert.match(requests[1].url, /^\/v1\/files\//);
   assert.equal(requests[1].headers.get("authorization"), null);
   assert.equal(requests[1].headers.get("content-type"), null);
+  resetApiBase();
+  await assert.rejects(uploadFiles("/workspace", [file], "skip", () => {}), /not configured/);
+  assert.equal(requests.length, 2, "no request may reach an implicit Next backend");
 });

@@ -12,7 +12,7 @@ export { validateInstaller } from "./update-release.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
-const inputs = ["app", "components", "hooks", "lib", "public", "instrumentation.ts", "proxy.ts", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "next.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
+const inputs = ["app", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "next.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
 
 export async function fingerprint(base, paths = inputs) {
   const hash = createHash("sha256");

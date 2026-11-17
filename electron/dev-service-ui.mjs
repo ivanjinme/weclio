@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isAbsolute, join, resolve } from "node:path";
+import { waitForServer } from "./server.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -43,9 +44,12 @@ async function stopTree(child) {
   signal("SIGKILL");
 }
 
-export async function main({ env = process.env, cwd = root, spawnChild = spawn, timeoutMs = 20_000 } = {}) {
+export async function main({ env = process.env, cwd = root, spawnChild = spawn, timeoutMs = 20_000, uiTimeoutMs = 120_000, desktop, onOutput = () => {} } = {}) {
   const servicePort = port(env.WECLIO_DEV_SERVICE_PORT, 8899);
-  const uiPort = port(env.WECLIO_DEV_UI_PORT, 8888);
+  const uiPort = port(env.WECLIO_DEV_UI_PORT ?? (desktop ? env.PORT : undefined), 8888);
+  const uiUrl = `http://127.0.0.1:${uiPort}`;
+  const childEnv = { ...env };
+  delete childEnv.ELECTRON_RUN_AS_NODE;
   if (servicePort === uiPort) throw new Error("Service and UI ports must differ");
   // 两个端口都检查完才创建子进程，绝不接管已存在的 UI 或 Service。
   await checkPort(servicePort);
@@ -65,25 +69,49 @@ export async function main({ env = process.env, cwd = root, spawnChild = spawn, 
   failed.catch(() => {});
   let interrupted;
   const signal = new Promise((resolve) => { interrupted = resolve; });
+  const controller = new AbortController();
   const onSignal = () => interrupted();
+  // process.exit() 不等待 finally；仅同步清理本次拥有的进程树。
+  const onExit = () => {
+    for (const child of children) {
+      if (!child.pid) continue;
+      if (process.platform === "win32") {
+        const result = spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", timeout: 10_000 });
+        if (result.error) console.error(`[dev] ${result.error.message}`);
+      } else {
+        try { process.kill(-child.pid, "SIGKILL"); }
+        catch (error) { if (error.code !== "ESRCH") console.error(`[dev] ${error.message}`); }
+      }
+    }
+  };
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
+  process.once("exit", onExit);
   let timer;
-  function run(name, args, childEnv, onOutput) {
-    const child = spawnChild(process.execPath, args, {
-      cwd, env: childEnv, stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true, detached: process.platform !== "win32",
+  function run(name, args, env, output, executable = process.execPath) {
+    const child = spawnChild(executable, args, {
+      cwd, env, stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: name !== "desktop", detached: process.platform !== "win32",
     });
     children.push(child);
     child.once("error", (error) => fail(new Error(`[${name}] ${error.message}`)));
-    child.once("exit", (code, signal) => fail(new Error(`[${name}] exited (${signal ?? code})`)));
+    child.once("exit", (code, signal) => {
+      if (name === "desktop" && code === 0) interrupted();
+      else fail(new Error(`[${name}] exited (${signal ?? code})`));
+    });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
-      process.stdout.write(`[${name}] ${chunk}`);
-      onOutput?.(chunk);
+      const message = `[${name}] ${chunk}`;
+      process.stdout.write(message);
+      onOutput(message);
+      output?.(chunk);
     });
-    child.stderr.on("data", (chunk) => process.stderr.write(`[${name}] ${chunk}`));
+    child.stderr.on("data", (chunk) => {
+      const message = `[${name}] ${chunk}`;
+      process.stderr.write(message);
+      onOutput(message);
+    });
     return child;
   }
   try {
@@ -100,10 +128,10 @@ export async function main({ env = process.env, cwd = root, spawnChild = spawn, 
        const entry = await jiti.import(${JSON.stringify(pathToFileURL(join(cwd, "lib/agent/service/entry.ts")).href)});
        await entry.main();`,
     ], {
-      ...env,
+      ...childEnv,
       WECLIO_AGENT_HOST: "127.0.0.1",
       WECLIO_AGENT_PORT: String(servicePort),
-      WECLIO_AGENT_ALLOWED_ORIGINS: `http://127.0.0.1:${uiPort}`,
+      WECLIO_AGENT_ALLOWED_ORIGINS: uiUrl,
       WECLIO_AGENT_STATE_DIR: stateDir,
       ...(env.WECLIO_DEV_AGENT_DIR ? { PI_CODING_AGENT_DIR: env.WECLIO_DEV_AGENT_DIR } : {}),
     }, (chunk) => {
@@ -125,19 +153,34 @@ export async function main({ env = process.env, cwd = root, spawnChild = spawn, 
     if (!started) return;
     const token = readFileSync(tokenPath, "utf8").trim();
     if (!token) throw new Error(`Agent token file is empty: ${tokenPath}`);
-    run("ui", [require.resolve("next/dist/bin/next"), "dev", "-H", "127.0.0.1", "-p", String(uiPort)], {
-      ...env,
+    let uiOutput = "";
+    const ui = run("ui", [require.resolve("next/dist/bin/next"), "dev", "-H", "127.0.0.1", "-p", String(uiPort)], {
+      ...childEnv,
       WECLIO_DEV_UI_DIST_DIR: distDir,
       NEXT_PUBLIC_WECLIO_API_URL: `http://127.0.0.1:${servicePort}`,
       NEXT_PUBLIC_WECLIO_API_BASE_PATH: "/v1",
       NEXT_PUBLIC_WECLIO_AGENT_TOKEN: token,
-    });
+    }, (chunk) => { uiOutput = (uiOutput + chunk).slice(-8192); });
+    if (desktop) {
+      const ready = await Promise.race([
+        waitForServer(uiUrl, {
+          signal: controller.signal,
+          timeout: uiTimeoutMs,
+          isReady: () => /Ready in/.test(uiOutput) && ui.exitCode === null && ui.signalCode === null,
+        }).then(() => true),
+        failed, signal,
+      ]);
+      if (!ready) return;
+      run("desktop", desktop.args ?? [], { ...childEnv, WECLIO_DESKTOP_URL: uiUrl }, undefined, desktop.executable);
+    }
     await Promise.race([failed, signal]);
   } finally {
     clearTimeout(timer);
+    controller.abort();
     process.removeListener("SIGINT", onSignal);
     process.removeListener("SIGTERM", onSignal);
-    await Promise.all(children.map(stopTree));
+    try { await Promise.all(children.map(stopTree)); }
+    finally { process.removeListener("exit", onExit); }
   }
 }
 

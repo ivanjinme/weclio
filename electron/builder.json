@@ -14,12 +14,12 @@
     "electron/updates.mjs",
     "electron/update-signature.mjs",
     "electron/update-install.mjs",
-    "electron/update-gate.mjs",
     "electron/production.mjs",
     "electron/runtime.mjs",
     "electron/toolsets.mjs",
     "electron/server.mjs",
     "bin/node-version.js",
+    "bin/ui-build.js",
     "LICENSE",
     "!node_modules/**/*"
   ],

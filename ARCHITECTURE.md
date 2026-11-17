@@ -32,6 +32,8 @@ Deployment:
            each with its own Agent Service
 ```
 
+- Next serves UI only. All business APIs, execution, persistence and provider configuration belong to the independent Agent Service; no Next proxy/fallback.
+- AgentRuntime is explicitly owned by the Service host, not a Next/HMR singleton. UI requires an explicitly selected Service.
 - Shared services have no Next.js/Electron dependencies.
 - Hosts own transport and lifecycle; shared services own business logic.
 - Pi owns agent execution, session persistence/tree semantics, and model-context construction. Do not reimplement them.
@@ -53,4 +55,5 @@ Deployment:
 | Default workspace | `lib/default-workspace.ts` |
 | Shared file drafts | `components/AppShell.tsx`, `lib/draft-store.ts`, `lib/file-draft.ts` |
 | Desktop processes / bundled tools | `electron/main.mjs`, `electron/toolsets.mjs` |
-| Desktop updates / releases | `electron/updates.mjs`, `docs/desktop-release.md` |
+| Desktop updates / releases | `electron/updates.mjs`, `electron/update-install.mjs`, `docs/desktop-distribution-plan.md` |
+| UI-only build admission | `bin/ui-build.js`, `bin/pi-web.js` |

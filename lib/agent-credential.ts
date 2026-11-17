@@ -2,7 +2,7 @@
 // Desktop 走 preload，Web 走服务端注入，本地开发走环境变量；不落 Cookie、不进 URL。
 // 当前采用显式 Bearer，不依赖跨站 Cookie；原生媒体/下载的认证通道另行决策。
 
-import { getApiBase } from "./api-base";
+import { getApiBase, isApiBaseConfigured } from "./api-base";
 
 let credential: string | null = null;
 
@@ -21,6 +21,7 @@ export function hasAgentCredential(): boolean {
 }
 
 function isSelectedApiUrl(url: string): boolean {
+  if (!isApiBaseConfigured()) return false;
   // 不为协议相对地址或反斜杠地址推断凭据归属。
   if (url.trimStart().startsWith("//") || url.includes("\\")) return false;
   const { baseUrl, basePath } = getApiBase();

@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { validateAgentImages } from "./image-attachments";
-import { Admission, getDefaultAdmission } from "./agent/admission";
+import { Admission } from "./agent/admission";
 import type { ComposerPart } from "./composer";
 import { expandSkillParts } from "./skill-input";
 import { invalidateModelsCache } from "./models-cache";
@@ -143,6 +143,7 @@ export class AgentSessionWrapper {
   private forceShutdownOnIdle = false;
   private _alive = true;
   private replySucceeded = false;
+  private readonly admission = new Admission();
 
   constructor(
     public readonly inner: AgentSessionLike,
@@ -153,12 +154,11 @@ export class AgentSessionWrapper {
 
   /** 首个 await 前占位；归属于当前 session 的 runtime。 */
   reserveTask(): () => void {
-    return this.hooks?.reserveTask() ?? getDefaultAdmission().reserve();
+    return this.hooks?.reserveTask() ?? this.admission.reserve();
   }
 
   private notify(): void {
-    if (this.hooks) this.hooks.notifyRunningChange();
-    else notifyRunningChange();
+    this.hooks?.notifyRunningChange();
   }
 
   get sessionId(): string {
@@ -1171,8 +1171,7 @@ export async function autoNameRpcSession(session: AgentSessionWrapper, onlyIfUnn
 }
 
 async function generateRpcSessionName(session: AgentSessionWrapper, onlyIfUnnamed: boolean) {
-  // 热更新后 globalThis 中可能仍有旧 wrapper，沿用原有 readiness 兼容。
-  await session.waitUntilReady?.();
+  await session.waitUntilReady();
   const hasTitleRecord = () => session.inner.sessionManager.getEntries().some((entry) => entry.type === "session_info");
   if (!session.isAlive() || (onlyIfUnnamed && hasTitleRecord())) return null;
   const result = await generateSessionTitle(session.inner as unknown as Pick<AgentSession, "agent">);
@@ -1186,7 +1185,7 @@ async function generateRpcSessionName(session: AgentSessionWrapper, onlyIfUnname
 // Agent runtime
 // ============================================================================
 
-// 由宿主注入的最小钩子：准入占位与运行态广播。Service 与 Next 各持有一个实例。
+// 由宿主拥有的 runtime 注入准入占位与运行态广播。
 export interface AgentRuntimeHooks {
   reserveTask(): () => void;
   notifyRunningChange(): void;
@@ -1213,7 +1212,7 @@ export interface StartSessionResult {
 
 /**
  * 运行期所有权：会话、启动锁、起始目录计数、运行态订阅与准入。
- * 实例化后只归一个宿主持有；默认实例挂在 globalThis 上以兼容 Next 热更新。
+ * 实例化后只归一个宿主持有，由宿主显式管理生命周期。
  */
 export class AgentRuntime implements AgentRuntimeHooks {
   private readonly sessions = new Map<string, AgentSessionWrapper>();
@@ -1231,7 +1230,7 @@ export class AgentRuntime implements AgentRuntimeHooks {
     return this.admission.reserve();
   }
 
-  /** 接管一个已存在的 wrapper（热更新或宿主替换后复用），并随其销毁自动移除。 */
+  /** 接管一个已存在的 wrapper，并随其销毁自动移除。 */
   attachSession(session: AgentSessionWrapper): void {
     this.sessions.set(session.sessionId, session);
     session.onDestroy(() => this.sessions.delete(session.sessionId));
@@ -1438,72 +1437,4 @@ export class AgentRuntime implements AgentRuntimeHooks {
   destroyAll(): void {
     for (const session of this.sessions.values()) session.destroy();
   }
-}
-
-declare global {
-  var __weclioAgentRuntime: AgentRuntime | undefined;
-}
-
-/** Next 宿主的默认实例：热更新后仍复用同一份会话与准入。 */
-export function getDefaultRuntime(): AgentRuntime {
-  // 热更新可能留下旧结构的实例；形状不符时丢弃，避免旧方法集继续被调用。
-  const existing = globalThis.__weclioAgentRuntime;
-  if (existing && typeof existing.startSession !== "function") globalThis.__weclioAgentRuntime = undefined;
-  if (!globalThis.__weclioAgentRuntime) {
-    const runtime = new AgentRuntime(getDefaultAdmission());
-    globalThis.__weclioAgentRuntime = runtime;
-    // Node cannot await exit handlers; direct destruction is a final best effort.
-    process.once("exit", () => runtime.destroyAll());
-    const shutdown = () => { void runtime.drain(); };
-    process.once("SIGINT", shutdown);
-    process.once("SIGTERM", shutdown);
-  }
-  return globalThis.__weclioAgentRuntime;
-}
-
-export function getRpcSession(sessionId: string): AgentSessionWrapper | undefined {
-  return getDefaultRuntime().getSession(sessionId);
-}
-
-export function hasBusyRpcSessionForCwds(cwds: Iterable<string>): boolean {
-  return getDefaultRuntime().hasBusyForCwds(cwds);
-}
-
-export function hasBusyRpcSessionForCwd(cwd: string): boolean {
-  return getDefaultRuntime().hasBusyForCwd(cwd);
-}
-
-export function destroyRpcSessionsForCwds(cwds: Iterable<string>): Promise<number> {
-  return getDefaultRuntime().destroyForCwds(cwds);
-}
-
-export function destroyRpcSessionsForCwd(cwd: string): Promise<number> {
-  return getDefaultRuntime().destroyForCwds([cwd]);
-}
-
-export function hasBusyDesktopTasks(): boolean {
-  return getDefaultRuntime().hasBusyTasks();
-}
-
-export function getRunningRpcSessionIds(): string[] {
-  return getDefaultRuntime().runningIds();
-}
-
-export function subscribeRunningSessions(listener: (ids: string[]) => void): () => void {
-  return getDefaultRuntime().subscribeRunning(listener);
-}
-
-export function notifyRunningChange(): void {
-  getDefaultRuntime().notifyRunningChange();
-}
-
-/** 启动或复用会话；默认入口供 Next 宿主使用，Service 直接操作自己的 runtime。 */
-export function startRpcSession(
-  sessionId: string,
-  sessionFile: string,
-  cwd: string,
-  toolNames?: string[],
-  toolPreset?: ToolPreset,
-): Promise<StartSessionResult> {
-  return getDefaultRuntime().startSession(sessionId, sessionFile, cwd, toolNames, toolPreset);
 }

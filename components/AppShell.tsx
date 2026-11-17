@@ -32,7 +32,7 @@ import { dismissStartupSplash } from "@/lib/dismiss-startup-splash";
 import type { SessionInfo } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
-import { apiUrl } from "@/lib/api-base";
+import { apiUrl, isApiBaseConfigured } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
 
 interface SettingsContext {
@@ -55,6 +55,20 @@ const EXPLORER_MIN_WIDTH = 170;
 const EXPLORER_COLLAPSED_WIDTH = 33;
 
 export function AppShell() {
+  const { locale } = useI18n();
+  const configured = isApiBaseConfigured();
+  useEffect(() => {
+    if (!configured) return dismissStartupSplash();
+  }, [configured]);
+  if (!configured) {
+    return <div role="alert" className="flex h-dvh items-center justify-center p-6 text-center">
+      {locale === "zh-CN" ? "尚未配置 Agent Service。开发环境请运行 npm run dev:web，或由宿主提供服务连接配置。" : "Agent Service is not configured. Run npm run dev:web for local development, or supply the connection through the host."}
+    </div>;
+  }
+  return <ConfiguredAppShell />;
+}
+
+function ConfiguredAppShell() {
   useLayoutEffect(bindWindowControlsOverlay, []);
   const router = useRouter();
   const searchParams = useSearchParams();

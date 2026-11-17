@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import type { AgentRuntime } from "../../rpc-manager";
 import { normalizeFilePathSlashes } from "../../file-paths";
+import { FileWriteError, readTextBody } from "../../file-write";
 import { statusForProtocolCode } from "../protocol/http-status";
 import { createSession, resumeSession } from "../session-create-service";
 import { fileIndex } from "../file-index-service";
@@ -141,6 +142,18 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+async function readObjectBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const raw = await readBody(req);
+  let body: unknown;
+  try { body = JSON.parse(raw); } catch {
+    throw new AgentProtocolError("invalid_argument", "Invalid JSON body");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new AgentProtocolError("invalid_argument", "JSON body must be an object");
+  }
+  return body as Record<string, unknown>;
+}
+
 function authorized(req: IncomingMessage, token: string): boolean {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) return false;
@@ -165,8 +178,6 @@ function isAllowedOrigin(req: IncomingMessage, allowed = configuredOrigins()): b
   return allowed.includes(origin);
 }
 
-const MAX_TEXT_WRITE_BYTES = 8 * 1024 * 1024;
-
 function toWebRequest(req: IncomingMessage): Request {
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
@@ -179,17 +190,6 @@ function toWebRequest(req: IncomingMessage): Request {
     body: Readable.toWeb(req) as ReadableStream<Uint8Array>,
     duplex: "half",
   } as RequestInit & { duplex: "half" });
-}
-
-async function readLimitedBody(req: IncomingMessage, limit: number): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > limit) throw new AgentProtocolError("payload_too_large", "Request body is too large");
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks);
 }
 
 /** 单段 Range 流式响应；非法区间返回 416 并带总长度。 */
@@ -514,8 +514,13 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
 
       if (method === "PUT") {
         const target = await resolveFileTarget(segments, "read");
-        const bytes = await readLimitedBody(req, MAX_TEXT_WRITE_BYTES);
-        sendJson(res, 200, { size: writeTextFile(target.filePath, target.allowedRoots, bytes) }, requestId);
+        try {
+          const bytes = await readTextBody(toWebRequest(req));
+          sendJson(res, 200, { size: writeTextFile(target.filePath, target.allowedRoots, bytes) }, requestId);
+        } catch (error) {
+          if (!(error instanceof FileWriteError)) throw error;
+          sendError(res, error.status, error.status === 413 ? "payload_too_large" : "invalid_argument", error.message, requestId);
+        }
         return;
       }
 
@@ -811,8 +816,8 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     }
 
     if (method === "POST" && url.pathname === "/v1/sessions/titles") {
-      const body = JSON.parse(await readBody(req)) as { ids?: unknown };
-      sendJson(res, 200, { titles: await listSessionTitles(body.ids as string[]) }, requestId);
+      const body = await readObjectBody(req);
+      sendJson(res, 200, { titles: await listSessionTitles(body.ids) }, requestId);
       return;
     }
 
@@ -950,7 +955,7 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
         return;
       }
       if (method === "PATCH") {
-        const body = JSON.parse(await readBody(req)) as { name?: unknown };
+        const body = await readObjectBody(req);
         if (typeof body.name !== "string") throw new AgentProtocolError("invalid_argument", "name is required");
         await renameSession(sessionId, body.name, runtime);
         sendJson(res, 200, { ok: true }, requestId);

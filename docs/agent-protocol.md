@@ -45,15 +45,7 @@ UI 侧类型（`lib/types.ts`、`lib/composer.ts`、`lib/tool-presets.ts`）只�
 
 ## 4. Endpoint
 
-当前（临时 transport，直连宿主）：
-
-```text
-POST /api/agent/:sessionId        → AgentCommand → AgentCommandResult
-GET  /api/agent/:sessionId        → { running, state? }
-GET  /api/agent/:sessionId/events → SSE
-```
-
-独立 Service（A2.1 已提供最小集）：
+P2 起只有独立 Service 提供业务 HTTP/SSE；Next 只提供 UI，不保留 `/api` 业务入口、代理或回退。客户端必须显式选择 Service，默认协议前缀 `/v1`，拒绝旧 `/api` 配置。
 
 ```text
 GET    /healthz                          活性；无需认证；不返回路径/版本
@@ -69,7 +61,7 @@ GET    /v1/sessions/:id/events           会话事件 SSE（id=seq，支持 Last
 PATCH  /v1/sessions/:id                  改名 { name }
 DELETE /v1/sessions/:id                  删除并重挂子会话
 POST   /v1/sessions/titles               { ids } → 标题
-POST   /v1/sessions/:id/commands?cwd=…   按需启动会话并执行命令
+POST   /v1/sessions/:id/commands        恢复已有会话后执行命令；未知 ID 返回 404
 GET    /v1/home                          Service 侧用户目录
 GET    /v1/workspaces/default            Service 默认工作区
 POST   /v1/workspaces/default            创建并授权默认工作区
@@ -112,27 +104,26 @@ GET    /v1/settings/pins                 置顶列表
 PATCH  /v1/settings/pins                 { type, id, pinned }
 ```
 
-- 业务路由（`/v1/*`）要求 `Authorization: Bearer <token>`；令牌来自受保护文件（默认 `stateDir/service-token`，`0600`，或 `WECLIO_AGENT_TOKEN_FILE`）。
+- 除只读 Ticket 兑换外，业务路由（`/v1/*`）要求 `Authorization: Bearer <token>`；令牌来自受保护文件（默认 `stateDir/service-token`，`0600`，或 `WECLIO_AGENT_TOKEN_FILE`）。
 - 仅绑定回环地址；非回环在 A2.1 直接拒绝启动。
 - 同一 `stateDir` 只允许一个写入者；属主进程存活时第二个实例拒绝启动。
 - 会话查询与 mutation 已就位；files / git / settings 随 A2.2b–c 补齐；事件流与重连统一在 A3.2 实现。
 
-客户端通过 `basePath` 切换（`/api` → `/v1`），不改调用点。
+### 4.1 客户端实际使用的端点
 
-### 4.1 客户端实际使用的端点（P1）
+| 用途 | Service |
+| --- | --- |
+| 命令 | `POST /v1/sessions/:id/commands` |
+| 会话事件 | `GET /v1/sessions/:id/events` |
+| 运行态全局流 | `GET /v1/events` |
+| 会话状态 | `GET /v1/sessions/:id/state` |
+| 上下文 | `GET /v1/sessions/:id/context` |
+| 延迟思考块 | `GET /v1/sessions/:id/entries/:entryId/thinking` |
+| 自动命名 | `POST /v1/sessions/:id/auto-name` |
+| bash 输出 | `GET /v1/sessions/:id/bash-output` |
 
-| 用途 | Next 宿主 | Service 宿主 |
-| --- | --- | --- |
-| 命令 | `POST /api/agent/:id` | `POST /v1/sessions/:id/commands` |
-| 会话事件 | `GET /api/agent/:id/events` | `GET /v1/sessions/:id/events?cwd=` |
-| 运行态全局流 | `GET /api/agent/running/events` | `GET /v1/events` |
-| 会话状态 | `GET /api/sessions/:id/state` | `GET /v1/sessions/:id/state` |
-| 上下文 | `GET /api/sessions/:id/context` | `GET /v1/sessions/:id/context` |
-| 延迟思考块 | `GET /api/sessions/:id/entries/:entryId/thinking` | 同形 `/v1/...` |
-| 自动命名 | `POST /api/sessions/:id/auto-name` | `POST /v1/sessions/:id/auto-name` |
-| bash 输出 | `GET /api/agent/:id/bash-output` | `GET /v1/sessions/:id/bash-output` |
-
-路由由 `lib/agent/routes.ts` 按基址推导：`/v1` 前缀即 Service 宿主，其余保持历史路径。
+`lib/agent/routes.ts` 仅生成 Service 路由。少量历史 UI 后缀仍在客户端转换，不是服务端别名。
+未配置 Service 时 AppShell 显示连接配置提示，不挂载会发业务请求的界面；凭据本身不能隐式选择后端。
 
 ### 4.2 跨源与凭据
 
@@ -149,7 +140,7 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 ### 4.3 资源访问
 
 共享 SDK `acquireResource({ filePath, kind, sessionId?, revision?, source? }, { native?, signal? })`
-返回 `{ url, transport, expiresAt?, release() }`。旧 Next 宿主继续同源直读；Service 的小资源以 Bearer
+返回 `{ url, transport: "blob"|"ticket", expiresAt?, release() }`。小资源以 Bearer
 读取并生成 Blob URL（严格 2MiB 传输上限，切换/卸载释放）；PDF、音频、SVG、大资源和下载使用 Ticket。
 DOCX Blob 预览必须保留 iframe sandbox，SVG 使用原生 URL 保留服务端 CSP。
 
@@ -171,7 +162,7 @@ SDK 不把 URL/底层传输错误原文暴露到异常。下载每次点击重�
 
 ## 5. 会话事件流
 
-`GET /v1/sessions/:id/events`（Next 侧为 `GET /api/agent/:id/events`）由 `lib/agent/session-events` 统一实现，两条宿主共用：
+`GET /v1/sessions/:id/events` 由 Service 中的 `lib/agent/session-events` 实现：
 
 1. **先订阅，再读快照**；快照发布期间到达的事件先缓冲，之后按序补发。
 2. 首事件为 `connected`，携带 `sessionId`、`isStreaming`、`resync` 与 `seq`。

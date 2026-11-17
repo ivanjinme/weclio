@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A 线的主要抽取已实施，但不等于端到端验收完成。当前按 P1→P6 执行：P1 本机隔离回归通过、等待用户验收，资源授权/Blob/Ticket 已实施；P2 尚未开始。A4 延期；B1 静态入口已有基础，尚未切换正式宿主。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A 线的主要抽取已实施，但不等于端到端验收完成。当前按 P1→P6 执行：P1 用户已验收通过，资源授权/Blob/Ticket 已实施；P2 的 Next 业务后端退役及开发隔离回归已完成，生产 UI 构建验证待授权，之后进入 P3。A4 延期；B1 静态入口已有基础，尚未切换正式宿主。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -23,7 +23,9 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 
 ## 2. A1 — 仓库审计结论
 
-### 当前事实与分类
+### 原始审计事实与分类（历史快照，非 P2 后现状）
+
+以下为实施前审计；当前 Next 已不再托管业务后端，见 [P2 记录](p2-next-retirement.md)。
 
 审计覆盖根配置/锁文件、全部 `app/api` 路由组、`lib`、`hooks`、`components`、`electron`、`bin`、CI、相关测试与安装的 Pi SDK 文档/实现；不以缓存、构建产物或历史实验推断现状。当前根依赖锁定 **Pi 1.5.2**；现状是 **Next 进程内运行 Pi**，不是已经独立的 Agent Service（[`package.json`](../package.json)、[`rpc-manager.ts`](../lib/rpc-manager.ts)）。
 
@@ -132,8 +134,8 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1/A2/A3/A5 主要实现完成 → P1 联调/回归（当前）→ P2 Web 去 Agent
-→ P3 Desktop 静态托管 → P4 Runtime/Service 打包 → P5 生命周期/更新保护 → P6 发行/升级
+A1/A2/A3/A5 主要实现完成 → P1 用户验收通过 → P2 Web 去 Agent 源码完成（待生产构建验证）
+→ P3 Desktop 静态托管（下一阶段） → P4 Runtime/Service 打包 → P5 生命周期/更新保护 → P6 发行/升级
 
 P1 未通过前不删除旧 Next 路由；详见 desktop-distribution-plan.md 的 P1→P6 表。
 

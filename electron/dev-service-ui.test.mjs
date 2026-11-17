@@ -26,6 +26,7 @@ async function fixture(t) {
   mkdirSync(stateDir);
   const env = {
     ...process.env,
+    ELECTRON_RUN_AS_NODE: "1",
     WECLIO_DEV_SERVICE_PORT: String(ports[0]),
     WECLIO_DEV_UI_PORT: String(ports[1]),
     WECLIO_AGENT_STATE_DIR: stateDir,
@@ -123,6 +124,7 @@ test("ready event gates UI, uses exact token/config and isolates output without 
   assert.equal(children.calls[0].options.env.WECLIO_AGENT_STATE_DIR, options.env.WECLIO_AGENT_STATE_DIR);
   assert.equal(children.calls[0].options.env.WECLIO_AGENT_TOKEN_FILE, options.env.WECLIO_AGENT_TOKEN_FILE);
   assert.equal(children.calls[0].options.env.WECLIO_AGENT_HOST, "127.0.0.1");
+  for (const call of children.calls) assert.equal(call.options.env.ELECTRON_RUN_AS_NODE, undefined);
   assert.equal(uiEnv.WECLIO_DEV_UI_DIST_DIR, "build/dev-service-ui");
   assert.equal(readFileSync(join(options.cwd, ".next/dev/old-output"), "utf8"), "stale-public-token");
   assert.equal(readFileSync(join(options.cwd, ".next/dev/lock"), "utf8"), "plain-next-lock");
@@ -205,3 +207,138 @@ test("active dedicated Next output lock is never removed", async (t) => {
   await assert.rejects(main({ ...options, spawnChild() { assert.fail("must not spawn"); } }), /output is locked/);
   assert.equal(existsSync(lock), true);
 });
+
+function desktopFixtures(options, uiCode, desktopCode = "process.exit(0)") {
+  const calls = [];
+  const children = [];
+  const scripts = [`${readyCode(options.env)} setInterval(() => {}, 1000);`, uiCode, desktopCode];
+  return {
+    calls, children,
+    spawnChild(command, args, childOptions) {
+      const index = calls.length;
+      calls.push({ command, args, options: childOptions });
+      assert.equal(command, index < 2 ? process.execPath : "fixture-electron");
+      const child = spawn(process.execPath, ["--eval", scripts[index]], childOptions);
+      children.push(child);
+      return child;
+    },
+  };
+}
+
+function httpUiCode(options) {
+  return `require('node:http').createServer((req, res) => res.end('fixture UI'))
+    .listen(${options.env.WECLIO_DEV_UI_PORT ?? options.env.PORT}, '127.0.0.1', () => console.log('Ready in 1ms'));`;
+}
+
+for (const httpFirst of [false, true]) {
+  test(`desktop is visible only after service bootstrap, current UI announcement and HTTP (${httpFirst ? "HTTP first" : "announcement first"})`, async (t) => {
+    const options = await fixture(t);
+    const uiPort = options.env.WECLIO_DEV_UI_PORT;
+    // PORT 兼容保留，同时显式 UI 端口的优先级不变。
+    if (httpFirst) delete options.env.WECLIO_DEV_UI_PORT;
+    options.env.PORT = httpFirst ? uiPort : "1";
+    const announced = join(options.cwd, "announced");
+    const responded = join(options.cwd, "responded");
+    const guiEnvFile = join(options.cwd, "gui-env");
+    const uiCode = `const fs = require('node:fs');
+      function announce() {
+        fs.writeFileSync(${JSON.stringify(announced)}, 'yes');
+        process.stdout.write('Rea'); setTimeout(() => console.log('dy in 1ms'), 20);
+      }
+      function listen() {
+        require('node:http').createServer((req, res) => {
+          fs.writeFileSync(${JSON.stringify(responded)}, 'yes'); res.end('fixture UI');
+        }).listen(${uiPort}, '127.0.0.1');
+      }
+      ${httpFirst ? "listen(); setTimeout(announce, 150);" : "announce(); setTimeout(listen, 150);"}`;
+    const children = desktopFixtures(options, uiCode, `const fs = require('node:fs');
+      if (!fs.existsSync(${JSON.stringify(announced)}) || !fs.existsSync(${JSON.stringify(responded)})) process.exit(8);
+      fs.writeFileSync(${JSON.stringify(guiEnvFile)}, JSON.stringify(process.env)); process.exit(0);`);
+    const output = [];
+    await main({ ...options, spawnChild: children.spawnChild,
+      desktop: { executable: "fixture-electron", args: ["main.mjs", "--fixture"] }, onOutput: (chunk) => output.push(chunk) });
+    assert.equal(children.calls.length, 3);
+    assert.deepEqual(children.calls[2].args, ["main.mjs", "--fixture"]);
+    for (const [index, call] of children.calls.entries()) {
+      assert.equal(call.options.windowsHide, index !== 2);
+      assert.equal(call.options.env.ELECTRON_RUN_AS_NODE, undefined);
+      assert.equal(call.options.detached, process.platform !== "win32");
+    }
+    const uiUrl = `http://127.0.0.1:${uiPort}`;
+    assert.equal(children.calls[0].options.env.WECLIO_AGENT_ALLOWED_ORIGINS, uiUrl);
+    assert.equal(children.calls[1].options.env.NEXT_PUBLIC_WECLIO_AGENT_TOKEN, "exact-token");
+    const guiEnv = JSON.parse(readFileSync(guiEnvFile, "utf8"));
+    assert.equal(guiEnv.WECLIO_DESKTOP_URL, uiUrl);
+    assert.equal(guiEnv.NEXT_PUBLIC_WECLIO_AGENT_TOKEN, undefined);
+    assert.ok(output.some((chunk) => chunk.includes("WECLIO_AGENT_")));
+    await assertStopped(children.children);
+  });
+}
+
+for (const uiCode of [
+  "process.exit(6)",
+  "setInterval(() => {}, 1000)",
+  "console.log('Ready in 1ms'); setInterval(() => {}, 1000)",
+  "require('node:http').createServer((req, res) => res.end('not announced')).listen(Number(process.env.WECLIO_DEV_UI_PORT), '127.0.0.1')",
+]) {
+  test(`UI startup failure never launches desktop: ${uiCode}`, async (t) => {
+    const options = await fixture(t);
+    const children = desktopFixtures(options, uiCode);
+    await assert.rejects(main({ ...options, spawnChild: children.spawnChild, timeoutMs: 500, uiTimeoutMs: 500,
+      desktop: { executable: "fixture-electron" } }), /\[ui\] exited \(6\)|Next 服务在 .* 秒内未就绪/);
+    assert.equal(children.calls.length, 2);
+    await assertStopped(children.children);
+  });
+}
+
+for (const spawnError of [false, true]) {
+  test(`desktop ${spawnError ? "spawn error" : "nonzero exit"} fails and stops owned Service and UI`, async (t) => {
+    const options = await fixture(t);
+    const children = desktopFixtures(options, httpUiCode(options), "process.exit(7)");
+    const spawnChild = (command, args, opts) => command === "fixture-electron" && spawnError
+      ? spawn(join(options.cwd, "missing-electron"), args, opts)
+      : children.spawnChild(command, args, opts);
+    await assert.rejects(main({ ...options, spawnChild, desktop: { executable: "fixture-electron" } }), /\[desktop\].*(ENOENT|exited \(7\))/);
+    await assertStopped(children.children);
+  });
+}
+
+for (const forceExit of [false, true]) {
+  test(`supervisor ${forceExit ? "process.exit" : "SIGINT"} stops its own children and descendants, not unrelated Node`, async (t) => {
+    const options = await fixture(t);
+    const pidsFile = join(options.cwd, "owned-pids");
+    const descendantFile = join(options.cwd, "descendant-pid");
+    const unrelated = spawn(process.execPath, ["--eval", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    t.after(() => unrelated.kill());
+    const serviceCode = `const child = require('node:child_process').spawn(process.execPath,
+      ['--eval', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
+      require('node:fs').writeFileSync(${JSON.stringify(descendantFile)}, String(child.pid));
+      ${readyCode(options.env)} setInterval(() => {}, 1000);`;
+    const script = `import { spawn } from 'node:child_process';
+      import { writeFileSync } from 'node:fs';
+      import { main } from ${JSON.stringify(new URL("./dev-service-ui.mjs", import.meta.url).href)};
+      const scripts = ${JSON.stringify([serviceCode, httpUiCode(options), "setInterval(() => {}, 1000)"])};
+      const pids = [];
+      await main({ cwd: ${JSON.stringify(options.cwd)}, env: process.env,
+        desktop: { executable: 'fixture-electron' },
+        spawnChild(command, args, opts) {
+          const child = spawn(process.execPath, ['--eval', scripts[pids.length]], opts);
+          pids.push(child.pid);
+          writeFileSync(${JSON.stringify(pidsFile)}, JSON.stringify(pids));
+          if (pids.length === 3) setTimeout(() => ${forceExit ? "process.exit(0)" : "process.emit('SIGINT')"}, 150);
+          return child;
+        }
+      });`;
+    const supervisor = spawn(process.execPath, ["--input-type=module", "--eval", script], { env: options.env, stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    supervisor.stderr.on("data", (chunk) => { stderr += chunk; });
+    supervisor.stdout.resume();
+    const [code] = await once(supervisor, "exit");
+    assert.equal(code, 0, stderr);
+    const pids = JSON.parse(readFileSync(pidsFile, "utf8"));
+    assert.equal(pids.length, 3);
+    pids.push(Number(readFileSync(descendantFile, "utf8")));
+    await assertStopped(pids.map((pid) => ({ pid })));
+    assert.doesNotThrow(() => process.kill(unrelated.pid, 0));
+  });
+}

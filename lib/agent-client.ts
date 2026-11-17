@@ -1,18 +1,18 @@
 // Agent Client：唯一客户端接缝。
-// 当前 transport 直连 Next 路由；接入独立 Service 时只改 endpoint/basePath，不改调用点。
+// 命令与事件仅连接独立 Agent Service。
 
 import type { AgentCommand, AgentCommandResult } from "./agent/protocol/commands";
-import { getApiBase } from "./api-base";
+import { getApiBase, requireApiBaseConfigured } from "./api-base";
 import { agentAuthHeaders, hasAgentCredential } from "./agent-credential";
 import { routesForBase, type HostRoutes } from "./agent/routes";
 import { AgentProtocolError, isAgentProtocolErrorCode } from "./agent/protocol/validate";
 
 export interface AgentClientOptions {
-  /** 覆盖宿主路由表；默认按 basePath 推断。 */
+  /** 显式覆盖 Service 路由表。 */
   routes?: HostRoutes;
   /** Service 源，例如 https://vm:8443；留空表示同源。 */
   baseUrl?: string;
-  /** 路由前缀：当前是 /api，独立 Service 使用 /v1。 */
+  /** Service 路由前缀，默认 /v1。 */
   basePath?: string;
   /** 每次请求前解析认证头，避免长期凭据进入 URL 或日志。 */
   headers?: () => Record<string, string> | Promise<Record<string, string>>;
@@ -77,7 +77,8 @@ function toProtocolError(response: Response, envelope: unknown): AgentProtocolEr
 }
 
 export function createAgentClient(options: AgentClientOptions = {}): AgentClient {
-  // 未显式指定时跟随全局 API 基址（默认同源 /api）。
+  // 显式注入的 Client 不依赖全局选择；默认 Client 必须先选定 Service。
+  if (!options.routes && options.baseUrl === undefined && options.basePath === undefined) requireApiBaseConfigured();
   const configured = getApiBase();
   const baseUrl = (options.baseUrl ?? configured.baseUrl).replace(/\/+$/, "");
   const basePath = options.basePath ?? configured.basePath;
@@ -119,6 +120,7 @@ let defaultClient: { baseUrl: string; basePath: string; client: AgentClient } | 
 
 /** 默认 Client 跟随当前 API 基址；基址变化后自动重建（含宿主路由）。 */
 export function getDefaultAgentClient(): AgentClient {
+  requireApiBaseConfigured();
   const base = getApiBase();
   if (!defaultClient || defaultClient.baseUrl !== base.baseUrl || defaultClient.basePath !== base.basePath) {
     defaultClient = { ...base, client: createAgentClient(base) };

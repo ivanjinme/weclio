@@ -11,6 +11,12 @@ import { createToolsetManifest, ensureToolset } from "./toolsets.mjs";
 
 const runtime = resolve("resources/runtime/win-x64");
 
+async function writeUiManifest(resources) {
+  const dir = join(resources, "server/.next/server");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "app-paths-manifest.json"), JSON.stringify({ "/page": "app/page.js" }));
+}
+
 test("production resolves an installed Node and npm without using Electron as Node", () => {
   assert.equal(resolveSystemNode(), process.execPath);
 });
@@ -42,6 +48,7 @@ test("unsupported Node versions and missing npm are rejected before launching th
 
 test("production initializes bundled packages before Next and never initializes against an occupied port", async (t) => {
   const resources = await mkdtemp(join(tmpdir(), "weclio-bootstrap-order-"));
+  await writeUiManifest(resources);
   t.after(() => rm(resources, { recursive: true, force: true }));
   for (const file of ["server/.next/BUILD_ID", "runtime/win-x64/tools/rg.exe", "runtime/win-x64/tools/fd.exe"]) {
     await mkdir(dirname(join(resources, file)), { recursive: true });
@@ -91,6 +98,7 @@ test("production uses the shared toolset PATH for bootstrap and Next, including 
   const temporary = await mkdtemp(join(tmpdir(), "weclio-production-toolset-"));
   t.after(() => rm(temporary, { recursive: true, force: true }));
   const resources = join(temporary, "installation", "resources");
+  await writeUiManifest(resources);
   const sourceRoot = join(resources, "runtime", "win-x64");
   const sharedRoot = join(temporary, "toolsets");
   for (const file of ["server/.next/BUILD_ID", "server/node_modules/next/dist/bin/next", "runtime/win-x64/tools/rg.exe", "runtime/win-x64/tools/fd.exe"]) {
@@ -158,6 +166,7 @@ test("production uses the shared toolset PATH for bootstrap and Next, including 
 
 test("cancelling first startup terminates its initializer before returning", async (t) => {
   const resources = await mkdtemp(join(tmpdir(), "weclio-cancel-bootstrap-"));
+  await writeUiManifest(resources);
   t.after(() => rm(resources, { recursive: true, force: true }));
   for (const file of ["server/.next/BUILD_ID", "runtime/win-x64/tools/rg.exe", "runtime/win-x64/tools/fd.exe"]) {
     await mkdir(dirname(join(resources, file)), { recursive: true });
@@ -180,8 +189,9 @@ test("cancelling first startup terminates its initializer before returning", asy
   }
 });
 
-test("only the Next child owns update IPC and unexpected exits still surface", async (t) => {
+test("the UI-only Next child has no Agent update gate and unexpected exits still surface", async (t) => {
   const resources = await mkdtemp(join(tmpdir(), "weclio-production-ipc-"));
+  await writeUiManifest(resources);
   t.after(() => rm(resources, { recursive: true, force: true }));
   for (const file of ["server/.next/BUILD_ID", "server/node_modules/next/dist/bin/next", "runtime/win-x64/tools/rg.exe", "runtime/win-x64/tools/fd.exe"]) {
     await mkdir(dirname(join(resources, file)), { recursive: true });
@@ -198,8 +208,8 @@ test("only the Next child owns update IPC and unexpected exits still surface", a
         assert.equal(options.env.WECLIO_DESKTOP_UPDATE_IPC,undefined);
         queueMicrotask(()=>child.emit('close',0));
       } else {
-        assert.deepEqual(options.stdio,['ignore','pipe','pipe','ipc']);
-        assert.equal(options.env.WECLIO_DESKTOP_UPDATE_IPC,'1');
+        assert.deepEqual(options.stdio,['ignore','pipe','pipe']);
+        assert.equal(options.env.WECLIO_DESKTOP_UPDATE_IPC,undefined);
         globalThis.fixtureNext=child;
         queueMicrotask(()=>child.stdout.emit('data','Ready in fixture'));
       }
@@ -222,10 +232,8 @@ test("only the Next child owns update IPC and unexpected exits still surface", a
     const {startProductionServer}=await import(${JSON.stringify(new URL("./production.mjs", import.meta.url).href)});
     let failure;
     const server=await startProductionServer({resourcesPath:${JSON.stringify(resources)},logsPath:${JSON.stringify(join(resources, "logs"))},url:'http://127.0.0.1:0',onUnexpectedExit:error=>{failure=error;}});
-    assert.equal(await server.updateGate.lock(),'ready');
-    const pending=server.updateGate.inspect();
+    assert.equal(server.updateGate,undefined, 'UI readiness must never claim the Agent is idle');
     globalThis.fixtureNext.emit('exit',1);
-    await assert.rejects(pending,/exited/);
     assert.match(failure.message,/Web 服务已退出/);
     assert.equal(globalThis.fixtureNext.listenerCount('message'),0);
     server.stop();

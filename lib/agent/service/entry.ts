@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentRuntime } from "../../rpc-manager";
+import { configureHttpDispatcher } from "../../http-dispatcher";
 import { PROTOCOL_VERSION } from "../protocol/version";
 import { resolveServiceConfig, type ServiceConfig } from "./config";
 import { startAgentServiceHost, type AgentServiceHost } from "./host";
@@ -75,6 +76,7 @@ export async function startAgentService(
 ): Promise<StartedAgentService> {
   const env = options.env ?? process.env;
   const config = resolveServiceConfig(env);
+  configureHttpDispatcher();
   mkdirSync(config.stateDir, { recursive: true });
 
   const instanceId = randomUUID();

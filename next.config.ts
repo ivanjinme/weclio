@@ -11,13 +11,6 @@ try {
 
 const nextConfig: NextConfig = {
   distDir: process.env.WECLIO_DEV_UI_DIST_DIR ?? ".next",
-  serverExternalPackages: [
-    "undici",
-    "@earendil-works/pi-coding-agent",
-    "@earendil-works/pi-agent-core",
-    "@earendil-works/pi-ai",
-    "@earendil-works/pi-tui",
-  ],
   allowedDevOrigins: ['192.168.*.*'],
   async headers() {
     return [

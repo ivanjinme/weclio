@@ -108,8 +108,8 @@ export async function listSessionCatalog(runtime: AgentRuntime): Promise<Session
   return { sessions: await listAllSessions(), runningSessionIds: runtime.runningIds() };
 }
 
-export async function listSessionTitles(ids: string[]): Promise<Awaited<ReturnType<typeof loadSessionTitles>>> {
-  if (ids.length > 100 || !ids.every((id) => typeof id === "string")) {
+export async function listSessionTitles(ids: unknown): Promise<Awaited<ReturnType<typeof loadSessionTitles>>> {
+  if (!Array.isArray(ids) || ids.length > 100 || !ids.every((id) => typeof id === "string")) {
     throw new AgentProtocolError("invalid_argument", "ids must contain at most 100 session IDs");
   }
   return loadSessionTitles(ids);

@@ -1,4 +1,4 @@
-// 通用执行准入：跨宿主复用（Next、独立 Service），不依赖 IPC/Desktop。
+// 通用执行准入：由各宿主显式持有，不依赖 IPC/Desktop。
 // 语义：reserve() 在首个 await 前占位；锁定后拒绝新任务；inspect/lock 只读当前状态。
 
 export class Admission {
@@ -41,13 +41,4 @@ export class Admission {
   pendingCount(): number {
     return this.pending;
   }
-}
-
-declare global {
-  var __weclioAdmission: Admission | undefined;
-}
-
-// Next 热更新会重新求值模块；默认实例挂在 globalThis 上以免出现第二个准入。
-export function getDefaultAdmission(): Admission {
-  return globalThis.__weclioAdmission ??= new Admission("Desktop update in progress; please try again after updating");
 }

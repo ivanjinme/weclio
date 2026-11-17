@@ -3,9 +3,9 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import nodeVersion from "../bin/node-version.js";
+import uiBuild from "../bin/ui-build.js";
 import { createRuntimeEnvironment } from "./runtime.mjs";
 import { assertPortAvailable, waitForServer } from "./server.mjs";
-import { createUpdateGate } from "./update-gate.mjs";
 import { resolveDesktopTools } from "./toolsets.mjs";
 
 export function resolveSystemNode(env = process.env) {
@@ -25,6 +25,7 @@ export function resolveSystemNode(env = process.env) {
 export async function startProductionServer({ resourcesPath, logsPath, url, onUnexpectedExit, signal, toolsetsRoot, toolsetsBase, onToolProgress }) {
   const root = join(resourcesPath, "server");
   if (!existsSync(join(root, ".next", "BUILD_ID"))) throw new Error("安装包缺少 Web 生产构建，请重新安装 Weclio。");
+  uiBuild.assertUiOnlyBuild(join(root, ".next"));
   signal?.throwIfAborted();
   const address = new URL(url);
   const port = Number(address.port || 80);
@@ -35,6 +36,7 @@ export async function startProductionServer({ resourcesPath, logsPath, url, onUn
     if (!existsSync(join(runtime, file))) throw new Error(`安装包缺少运行工具: ${file}`);
   }  const env = { ...createRuntimeEnvironment(runtime), NODE_ENV: "production", PI_WEB_HOSTNAME: "127.0.0.1" };
   delete env.ELECTRON_RUN_AS_NODE;
+  delete env.WECLIO_DESKTOP_UPDATE_IPC;
   for (const key of Object.keys(env)) {
     if (key === "TURBOPACK" || key === "NEXT_RUNTIME" || key.startsWith("__NEXT_")) delete env[key];
   }
@@ -70,9 +72,8 @@ export async function startProductionServer({ resourcesPath, logsPath, url, onUn
   const require = createRequire(import.meta.url);
   const next = require.resolve(join(root, "node_modules", "next", "dist", "bin", "next"));
   const child = spawn(node, [next, "start", "-H", "127.0.0.1", "-p", String(port)], {
-    cwd: root, env: { ...env, WECLIO_DESKTOP_UPDATE_IPC: "1" }, windowsHide: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe", "ipc"],
+    cwd: root, env, windowsHide: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"],
   });
-  const updateGate = createUpdateGate(child);
   const controller = new AbortController();
   let ready = false;
   let stopping = false;
@@ -81,7 +82,6 @@ export async function startProductionServer({ resourcesPath, logsPath, url, onUn
   const stop = () => {
     if (stopping) return;
     stopping = true;
-    updateGate.dispose({ unlock: false });
     controller.abort();
     process.off("exit", stop);
     signal?.removeEventListener("abort", stop);
@@ -104,7 +104,6 @@ export async function startProductionServer({ resourcesPath, logsPath, url, onUn
   const failed = (error) => {
     if (stopping) return;
     failure = error;
-    updateGate.dispose({ unlock: false });
     record(`[desktop] ${error.message}\n`);
     controller.abort();
     if (ready) onUnexpectedExit(error);
@@ -120,7 +119,8 @@ export async function startProductionServer({ resourcesPath, logsPath, url, onUn
     });
     if (failure) throw failure;
     ready = true;
-    return { stop, logFile, updateGate };
+    // Next 只提供 UI，不能代表独立 Service 的忙碌状态；未接真实门禁时安装器必须拒绝更新。
+    return { stop, logFile };
   } catch (error) {
     stop();
     throw failure ?? new Error(`${error.message}\n服务日志: ${logFile}`);

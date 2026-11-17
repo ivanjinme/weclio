@@ -33,9 +33,9 @@ test("server dependencies have a dedicated resource mapping, including nested de
 test("installer updater packages only its runtime modules, not obsolete application or build-only modules", () => {
   assert.deepEqual(config.files, [
     "electron/main.mjs", "lib/startup-splash.mjs", "electron/navigation.mjs", "electron/protocol.mjs", "electron/preload.cjs",
-    "electron/updates.mjs", "electron/update-signature.mjs", "electron/update-install.mjs", "electron/update-gate.mjs",
+    "electron/updates.mjs", "electron/update-signature.mjs", "electron/update-install.mjs",
     "electron/production.mjs", "electron/runtime.mjs", "electron/toolsets.mjs", "electron/server.mjs",
-    "bin/node-version.js", "LICENSE", "!node_modules/**/*",
+    "bin/node-version.js", "bin/ui-build.js", "LICENSE", "!node_modules/**/*",
   ]);
   assert.deepEqual(config.extraResources.find((entry) => entry.from === "resources"), { from: "resources", to: ".", filter: ["desktop-update.json"] });
 });

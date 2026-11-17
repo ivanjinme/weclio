@@ -32,10 +32,15 @@ test("autocomplete-created drafts preserve thinking through first send and subse
   const commands = [];
   let runtimeThinking = "high";
   let creationCount = 0;
+  const apiBase = await createJiti(import.meta.url).import("../lib/api-base.ts");
+  apiBase.configureApiBase({ basePath: "/v1" });
+  t.after(apiBase.resetApiBase);
   const jiti = createJiti(import.meta.url, {
     alias: { "@": fileURLToPath(new URL("../", import.meta.url)) },
     virtualModules: {
       react: hooks.react,
+      "@/lib/api-base": apiBase,
+      "@/lib/api-fetch": { apiFetch: (path, init) => globalThis.fetch(apiBase.apiUrl(path), init) },
       "@/lib/event-stream": {
         // 事件流改成 fetch 实现后，用替身把连接交回测试里的 EventSource。
         EVENT_STREAM_CONNECTING: 0,
@@ -44,7 +49,7 @@ test("autocomplete-created drafts preserve thinking through first send and subse
         createEventStream: (url) => new globalThis.EventSource(url),
       },
       "@/lib/agent-client": {
-        getDefaultAgentClient: () => ({ routes: { events: (id) => "/api/agent/" + id + "/events", runningEvents: () => "/api/agent/running/events", commands: (id) => "/api/agent/" + id, state: (id) => "/api/sessions/" + id + "/state" } }),
+        getDefaultAgentClient: () => ({ routes: { events: (id) => "/v1/sessions/" + id + "/events", runningEvents: () => "/v1/events", commands: (id) => "/v1/sessions/" + id + "/commands", state: (id) => "/v1/sessions/" + id + "/state" } }),
         async sendAgentCommand(_sid, command) {
           commands.push(command);
           // SDK setModel() 会重新应用保存的默认推理档位。
@@ -58,7 +63,7 @@ test("autocomplete-created drafts preserve thinking through first send and subse
   });
   const { useAgentSession: runSessionHook } = await jiti.import("./useAgentSession.ts");
   t.mock.method(globalThis, "fetch", async (url, options) => {
-    assert.equal(url, "/api/agent/new");
+    assert.equal(url, "/v1/sessions");
     const body = JSON.parse(options.body);
     assert.equal(body.thinkingLevel, "medium");
     assert.equal(body.modelId, "first-model");
@@ -117,7 +122,7 @@ test("all send paths carry skill parts without treating tagged input as a shell 
         createEventStream: (url) => new globalThis.EventSource(url),
       },
       "@/lib/agent-client": {
-        getDefaultAgentClient: () => ({ routes: { events: (id) => "/api/agent/" + id + "/events", runningEvents: () => "/api/agent/running/events", commands: (id) => "/api/agent/" + id, state: (id) => "/api/sessions/" + id + "/state" } }),
+        getDefaultAgentClient: () => ({ routes: { events: (id) => "/v1/sessions/" + id + "/events", runningEvents: () => "/v1/events", commands: (id) => "/v1/sessions/" + id + "/commands", state: (id) => "/v1/sessions/" + id + "/state" } }),
         async sendAgentCommand(_sid, command) { commands.push(command); return null; },
       },
     },

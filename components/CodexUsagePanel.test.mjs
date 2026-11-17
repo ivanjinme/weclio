@@ -9,7 +9,7 @@ const { formatCodexResetTime } = await jiti.import("./CodexUsagePanel.tsx");
 const panel = await readFile(new URL("./CodexUsagePanel.tsx", import.meta.url), "utf8");
 const shell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const hook = await readFile(new URL("../hooks/useCodexUsage.ts", import.meta.url), "utf8");
-const route = await readFile(new URL("../app/api/usage/codex/route.ts", import.meta.url), "utf8");
+const service = await readFile(new URL("../lib/agent/service/host.ts", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("usage precedes Settings and requests only on menu opening", () => {
@@ -89,6 +89,8 @@ test("each available window has a compact ten-segment remaining bar with accessi
 test("client imports only usage types and API responses cannot be browser-cached", () => {
   assert.match(panel, /import type \{ CodexUsage, CodexUsageWindow \}/);
   assert.match(hook, /import type \{ CodexUsage \}/);
-  assert.match(route, /"Cache-Control": "no-store"/);
+  assert.match(service, /"cache-control": "no-store"/);
+  assert.match(service, /url\.pathname === "\/v1\/usage\/codex"/);
+  assert.match(service, /await getCodexUsage\(\)/);
   assert.doesNotMatch(hook + panel, /apiKey|Authorization|accountId|ModelRuntime|auth\.json/);
 });
