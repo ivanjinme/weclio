@@ -1,7 +1,7 @@
 import { homedir } from "os";
 import path from "path";
 
-export const DEFAULT_WORKSPACE_ENV = "PI_WEB_DEFAULT_CWD";
+export const DEFAULT_WORKSPACE_ENV = "WECLIO_DEFAULT_CWD";
 
 export function getDefaultWorkspacePath(
   configuredPath = process.env[DEFAULT_WORKSPACE_ENV],

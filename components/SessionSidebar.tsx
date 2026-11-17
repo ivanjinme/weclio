@@ -54,7 +54,7 @@ interface Props {
   onToggleSidebar?: () => void;
 }
 
-const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
+const UNREAD_SESSIONS_STORAGE_KEY = "weclio:unread-session-ids";
 function loadUnreadSessionIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -94,7 +94,7 @@ function getRecentProjects(sessions: SessionInfo[]): string[] {
     .map(([root]) => root);
 }
 
-const PROJECT_LABELS_STORAGE_KEY = "pi-web:project-labels";
+const PROJECT_LABELS_STORAGE_KEY = "weclio:project-labels";
 
 function loadProjectLabels(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -468,7 +468,7 @@ function useScramble(target: string, running: boolean): string {
   return display;
 }
 
-function PiWebTitle() {
+function WeclioTitle() {
   const [showVersion, setShowVersion] = useState(false);
   const [scrambling, setScrambling] = useState(false);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1136,7 +1136,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       {/* Header */}
       <div className="session-sidebar-header">
         <div className="session-sidebar-header-row">
-          <PiWebTitle />
+          <WeclioTitle />
           {onToggleSidebar && (
             <button
               type="button"

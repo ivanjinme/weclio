@@ -239,7 +239,7 @@ export class AgentSessionWrapper {
 
   beginExtensionBinding(options: ExtensionBindingOptions = {}): void {
     void this.ensureExtensionsBound(options).catch((err) => {
-      console.error("[pi-web] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
+      console.error("[weclio] failed to dispatch session_start to extensions:", err instanceof Error ? err.message : err);
     });
   }
 
@@ -291,7 +291,7 @@ export class AgentSessionWrapper {
       }
       this.extensionsBound = true;
       this.applyForcedEmptySystemPrompt();
-      console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
+      console.log(`[weclio] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
       this.extensionBindingError = err;
       throw err;
@@ -355,7 +355,7 @@ export class AgentSessionWrapper {
         return;
       }
       void this.shutdown().catch((error) => {
-        console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
+        console.error("[weclio] failed to shut down idle session:", error instanceof Error ? error.message : error);
       });
     }, 10 * 60 * 1000);
   }
@@ -456,7 +456,7 @@ export class AgentSessionWrapper {
             this.autoNameOnFirstReply = false;
             // 复用命名操作，后台执行；失败保留首条消息标题，不重试。
             void autoNameRpcSession(this, true).catch((error) => {
-              console.warn("[pi-web] automatic session title failed:", error instanceof Error ? error.message : error);
+              console.warn("[weclio] automatic session title failed:", error instanceof Error ? error.message : error);
             });
           }
         }).catch((error) => {
@@ -793,7 +793,7 @@ export class AgentSessionWrapper {
     this.sessionShutdownEmitted = true;
     void this.inner.extensionRunner.emit({ type: "session_shutdown", reason: "quit" })
       .catch((error) => {
-        console.error("[pi-web] session_shutdown before dispose failed:", error instanceof Error ? error.message : error);
+        console.error("[weclio] session_shutdown before dispose failed:", error instanceof Error ? error.message : error);
       })
       .finally(finishDispose);
   }
@@ -807,7 +807,7 @@ export class AgentSessionWrapper {
         try {
           await this.waitForExtensionsBound();
         } catch (error) {
-          console.error("[pi-web] extension binding failed before session shutdown:", error instanceof Error ? error.message : error);
+          console.error("[weclio] extension binding failed before session shutdown:", error instanceof Error ? error.message : error);
         }
         if (!this.sessionShutdownEmitted) {
           this.sessionShutdownEmitted = true;
@@ -1261,7 +1261,7 @@ export class AgentRuntime implements AgentRuntimeHooks {
     if (!availability.bash && !availability.powershell) {
       const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
       console.warn(
-        `[pi-web] No supported shell is available; shell tools are disabled and read/edit/write remain enabled. Bash: ${message(bashError)}; PowerShell: ${message(powerShellError)}`,
+        `[weclio] No supported shell is available; shell tools are disabled and read/edit/write remain enabled. Bash: ${message(bashError)}; PowerShell: ${message(powerShellError)}`,
       );
     }
     this.shellAvailability = availability;

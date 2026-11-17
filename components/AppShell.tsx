@@ -46,11 +46,11 @@ const SIDEBAR_DEFAULT_WIDTH = 300;
 const SIDEBAR_MIN_WIDTH = 256;
 const SIDEBAR_MAX_WIDTH = 480;
 const SIDEBAR_COLLAPSE_THRESHOLD = 180;
-const SIDEBAR_WIDTH_STORAGE_KEY = "pi-web:sidebar-width";
-const RIGHT_PANEL_OPEN_STORAGE_KEY = "pi-web:right-panel-open";
-const RIGHT_PANEL_WIDTH_STORAGE_KEY = "pi-web:right-panel-width";
+const SIDEBAR_WIDTH_STORAGE_KEY = "weclio:sidebar-width";
+const RIGHT_PANEL_OPEN_STORAGE_KEY = "weclio:right-panel-open";
+const RIGHT_PANEL_WIDTH_STORAGE_KEY = "weclio:right-panel-width";
 const RIGHT_PANEL_MIN_WIDTH = 320;
-const EXPLORER_WIDTH_STORAGE_KEY = "pi-web:explorer-width";
+const EXPLORER_WIDTH_STORAGE_KEY = "weclio:explorer-width";
 const EXPLORER_MIN_WIDTH = 170;
 const EXPLORER_COLLAPSED_WIDTH = 33;
 

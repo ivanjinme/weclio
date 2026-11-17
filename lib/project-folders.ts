@@ -1,6 +1,6 @@
-const STORAGE_KEY = "pi-web:project-folders";
-const HIDDEN_STORAGE_KEY = "pi-web:hidden-project-folders";
-export const PROJECT_FOLDERS_CHANGED_EVENT = "pi-web:project-folders-changed";
+const STORAGE_KEY = "weclio:project-folders";
+const HIDDEN_STORAGE_KEY = "weclio:hidden-project-folders";
+export const PROJECT_FOLDERS_CHANGED_EVENT = "weclio:project-folders-changed";
 
 function loadStringArray(key: string): string[] {
   if (typeof window === "undefined") return [];

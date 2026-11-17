@@ -1,24 +1,32 @@
 {
-  "name": "@weclio/pi-web",
+  "name": "@weclio/web",
   "version": "0.1.20",
-  "description": "Web UI for the pi coding agent",
-  "homepage": "https://github.com/ivanjinme/pi-web#readme",
+  "description": "Weclio web app: agent harness UI for the Pi coding agent",
+  "keywords": [
+    "weclio",
+    "pi",
+    "coding-agent",
+    "agent-harness",
+    "web-ui"
+  ],
+  "homepage": "https://github.com/ivanjinme/weclio#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ivanjinme/pi-web.git"
+    "url": "git+https://github.com/ivanjinme/weclio.git"
   },
   "bugs": {
-    "url": "https://github.com/ivanjinme/pi-web/issues"
+    "url": "https://github.com/ivanjinme/weclio/issues"
   },
   "license": "MIT",
   "engines": {
     "node": ">=22.19.0"
   },
   "bin": {
-    "weclio-web": "bin/pi-web.js"
+    "weclio-web": "bin/weclio-web.js"
   },
   "files": [
     "bin",
+    "!bin/*.test.mjs",
     ".next",
     "!.next/cache",
     "!.next/dev",
@@ -31,7 +39,6 @@
     "dev": "npm run dev:desktop",
     "dev:desktop": "npm run build:desktop-ui && node electron/dev.mjs",
     "dev:web": "node electron/dev-service-ui.mjs",
-    "dev:lan": "next dev -H 0.0.0.0 -p 8888",
     "prepare:desktop-runtime": "node electron/node-runtime.mjs",
     "build:desktop": "node electron/build.mjs",
     "pack:desktop": "npm run build:desktop && electron-builder --config electron/builder.json --win --x64 --dir",
@@ -40,10 +47,8 @@
     "setup:desktop-updates": "node electron/update-release.mjs --init",
     "fixture:desktop-update": "node electron/update-fixture.mjs",
     "build": "next build --webpack",
-    "start": "node bin/pi-web.js --no-open -H 127.0.0.1 -p 8888",
-    "start:lan": "node bin/pi-web.js --no-open -H 0.0.0.0 -p 8888",
+    "start": "node bin/weclio-web.js --no-open -H 127.0.0.1 -p 8888",
     "lint": "eslint .",
-    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
     "build:desktop-ui": "vite build",
     "dev:desktop-ui": "vite --config vite.config.ts",
     "dev:service-ui": "node electron/dev-service-ui.mjs"

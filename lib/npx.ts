@@ -55,7 +55,7 @@ export function npxEnvironment(
   const env: NodeJS.ProcessEnv = { ...base };
   for (const name of Object.keys(env)) {
     const key = platform === "win32" ? name.toUpperCase() : name;
-    if (key === "PORT" || key === "NODE_ENV" || key === "PI_WEB_PASSWORD"
+    if (key === "PORT" || key === "NODE_ENV" || key === "WECLIO_PASSWORD"
       || key.startsWith("NEXT_") || key === "FORCE_COLOR") {
       delete env[name];
     }

@@ -22,7 +22,7 @@ test("sidebar collapse lives in the sidebar while the chat opener only appears w
   assert.match(source, /<SessionSidebar[\s\S]*?onToggleSidebar=\{handleSidebarToggle\}/);
   assert.match(source, /\{!sidebarOpen && \(\s*<button[\s\S]*?onClick=\{handleSidebarToggle\}[\s\S]*?aria-label=\{translate\("sidebar.show"\)\}/);
   assert.doesNotMatch(source, /translate\("sidebar.hide"\)/);
-  assert.match(sidebarSource, /className="session-sidebar-header-row"[\s\S]*?<PiWebTitle \/>[\s\S]*?className="sidebar-collapse-button"\s*onClick=\{onToggleSidebar\}\s*aria-label=\{t\("sidebar.hide"\)\}/);
+  assert.match(sidebarSource, /className="session-sidebar-header-row"[\s\S]*?<WeclioTitle \/>[\s\S]*?className="sidebar-collapse-button"\s*onClick=\{onToggleSidebar\}\s*aria-label=\{t\("sidebar.hide"\)\}/);
   assert.match(sidebarSource, /: "Weclio";\s*const display = useScramble/);
   assert.match(styles, /\.session-sidebar-header-row > \.session-sidebar-brand\s*\{[^}]*font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;[^}]*font-weight: 500;/);
   assert.match(styles, /\.session-sidebar-brand\s*\{\s*height: 36px;/);

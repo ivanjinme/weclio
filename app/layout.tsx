@@ -25,7 +25,7 @@ export default function RootLayout({
         <meta name="google" content="notranslate" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("pi-theme");if(t==="dark")d.classList.add("dark");var w=Number(localStorage.getItem("pi-web:sidebar-width"));if(Number.isFinite(w)&&w>=240&&w<=480)d.style.setProperty("--saved-sidebar-width",w+"px")}catch(e){}})();`,
+            __html: `(function(){try{var d=document.documentElement,t=localStorage.getItem("weclio-theme");if(t==="dark")d.classList.add("dark");var w=Number(localStorage.getItem("weclio:sidebar-width"));if(Number.isFinite(w)&&w>=240&&w<=480)d.style.setProperty("--saved-sidebar-width",w+"px")}catch(e){}})();`,
           }}
         />
       </head>

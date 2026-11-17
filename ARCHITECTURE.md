@@ -65,4 +65,4 @@ Deployment:
 | Dev supervisor (Service + UI/Electron) | `electron/dev-service-ui.mjs`, `electron/dev.mjs` |
 | Update admission (owned Service gate) | `lib/agent/service/maintenance-control.ts`, `electron/service-control.mjs` |
 | Desktop updates / releases | `electron/updates.mjs`, `electron/update-install.mjs`, `docs/desktop-distribution-plan.md` |
-| UI-only build admission | `bin/ui-build.js`, `bin/pi-web.js` |
+| UI-only build admission | `bin/ui-build.js`, `bin/weclio-web.js` |

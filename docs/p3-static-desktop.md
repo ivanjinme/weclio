@@ -49,7 +49,7 @@ Desktop 窗口改为加载 Vite 静态构建（`weclio://app/index.html`），�
 - **本机自动化窗口不可见**（`document.visibilityState === "hidden"`），Chromium 会无限期推迟 `loading="lazy"` 图片；
   把同一图片改为 `eager` 立即解码（1×1）。这是无头/不可见窗口的渲染行为，不是资源或 CSP 缺陷；
   真实可见窗口下无需处理。
-- `electron/production.mjs` 与 `bin/pi-web.js` 仍是安装版 Next 启动路径，`main.mjs` 已不再调用前者；
+- `electron/production.mjs` 与 `bin/weclio-web.js` 仍是安装版 Next 启动路径，`main.mjs` 已不再调用前者；
   两者在 P4/P6 会分别被内置 Service 与静态资产布局取代。本次不删除，避免半完成的打包改造。
 - 打包产物的静态资产布局、CSP 中 Service 源的生产注入、内置 Node/Service、真实更新门禁均未完成。
 - `dev:desktop` 每次先构建静态 UI（约 40 秒）；只改组件时可跳过重复构建手动启动。

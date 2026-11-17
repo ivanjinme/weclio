@@ -16,7 +16,7 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { assertUiOnlyBuild } = require("./ui-build");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseLaunchOptions } = require("./pi-web-options");
+const { parseLaunchOptions } = require("./weclio-web-options");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
@@ -58,7 +58,7 @@ nextArgs.push("-H", hostname);
 // Always run next's JS entry with node directly — avoids .bin symlink issues
 // and path-with-spaces problems on Windows when shell: true is used.
 // 生产入口固定使用已检查的 .next，不能继承开发输出目录绕过产物检查。
-const childEnv = { ...process.env, NODE_ENV: "production", PI_WEB_HOSTNAME: hostname };
+const childEnv = { ...process.env, NODE_ENV: "production", WECLIO_HOST: hostname };
 delete childEnv.WECLIO_DEV_UI_DIST_DIR;
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,

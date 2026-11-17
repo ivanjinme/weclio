@@ -51,7 +51,7 @@ const rejected = [
 function runCli(root) {
   const fixtureBin = path.join(root, "bin");
   mkdirSync(fixtureBin);
-  for (const filename of ["pi-web.js", "pi-web-options.js", "node-version.js", "ui-build.js"]) {
+  for (const filename of ["weclio-web.js", "weclio-web-options.js", "node-version.js", "ui-build.js"]) {
     copyFileSync(path.join(binDir, filename), path.join(fixtureBin, filename));
   }
   const marker = path.join(root, "spawned.json");
@@ -66,9 +66,9 @@ function runCli(root) {
       return child;
     };
   `);
-  const result = spawnSync(process.execPath, ["--require", preload, path.join(fixtureBin, "pi-web.js"), "--no-open"], {
+  const result = spawnSync(process.execPath, ["--require", preload, path.join(fixtureBin, "weclio-web.js"), "--no-open"], {
     encoding: "utf8",
-    env: { ...process.env, PI_WEB_HOSTNAME: "127.0.0.1", NODE_ENV: "development", WECLIO_DEV_UI_DIST_DIR: "stale-dev-output" },
+    env: { ...process.env, WECLIO_HOST: "127.0.0.1", NODE_ENV: "development", WECLIO_DEV_UI_DIST_DIR: "stale-dev-output" },
     timeout: 10000,
   });
   assert.equal(result.error, undefined);

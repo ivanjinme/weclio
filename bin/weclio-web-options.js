@@ -22,8 +22,8 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
 
   return {
     port: cliArgs.port ?? env.PORT ?? "8888",
-    hostname: cliArgs.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",
-    openBrowser: !cliArgs["no-open"] && !isEnabled(env.PI_WEB_NO_OPEN),
+    hostname: cliArgs.hostname ?? env.WECLIO_HOST ?? "127.0.0.1",
+    openBrowser: !cliArgs["no-open"] && !isEnabled(env.WECLIO_NO_OPEN),
   };
 }
 
