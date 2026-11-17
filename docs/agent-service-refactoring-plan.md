@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A 线全部实施完成（A1、A3.1、A2.1、A2.2a、A2.2b-1..4、A2.2c-1/2/3、A3.2、A3.3、A5）；A4 延期；B 线未实施（B1 已获批准可开工）。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A 线的主要抽取已实施，但不等于端到端验收完成。当前按 P1→P6 执行：P1 联调中，浏览器媒体/下载认证待决策；P2 尚未开始。A4 延期；B1 静态入口已有基础，尚未切换正式宿主。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -132,7 +132,10 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1 ✅ → A3.1 ✅ → A2.1 ✅ → A2.2a ✅ → A2.2b-1..4 ✅ → A2.2c-1/2/3 ✅ → A3.2 ✅ → A3.3 ✅ → A5 ✅ → B1 ⏭（已批准）→ B2 → B3 → B4 → B5
+A1/A2/A3/A5 主要实现完成 → P1 联调/回归（当前）→ P2 Web 去 Agent
+→ P3 Desktop 静态托管 → P4 Runtime/Service 打包 → P5 生命周期/更新保护 → P6 发行/升级
+
+P1 未通过前不删除旧 Next 路由；详见 desktop-distribution-plan.md 的 P1→P6 表。
 
 B1 消费 A3.3；B2 消费 A2 的独立入口/能力
 B3 消费 B1/B2 + A3，接通 Local 生命周期和更新保护

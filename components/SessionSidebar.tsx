@@ -664,7 +664,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       }
     };
 
-    // On error EventSource auto-reconnects; keep the last known state meanwhile.
+    // 暂时断线由 fetch SSE 客户端自动重连，期间保留最后的运行状态。
     return () => source.close();
   }, [loadSessions]);
 
@@ -976,7 +976,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const load = async () => {
       const titles: { id: string; name?: string; firstMessage: string }[] = [];
       for (let offset = 0; offset < requested.length; offset += 100) {
-        const response = await apiFetch(apiUrl("/sessions"), {
+        const response = await apiFetch(apiUrl("/sessions", "POST"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

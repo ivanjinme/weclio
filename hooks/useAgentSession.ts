@@ -369,7 +369,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
       const url = apiUrl(`/sessions/${encodeURIComponent(sid)}/context?${params}`);
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
       setMessages(d.context.messages);
@@ -494,18 +494,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       };
       es.onerror = () => {
         if (es.readyState === EVENT_STREAM_CLOSED) {
-          // Fatal error (404/500/content-type mismatch): browser won't
-          // auto-reconnect. Settle the Promise and manually reconnect for
-          // already-running sessions.
+          // 仅终止性错误进入 CLOSED；鉴权失败不可另起重连循环。
           settle("closed");
-          if (eventSourceRef.current === es && agentRunningRef.current) {
-            eventSourceRef.current = null;
-            setTimeout(() => {
-              if (agentRunningRef.current) void connectEvents(sid);
-            }, 1000);
-          }
         }
-        // Recoverable errors (CONNECTING): let EventSource auto-reconnect.
+        // 暂时性错误保持 CONNECTING，由 fetch SSE 客户端携带游标重连。
         // The timeout above resolves only to let callers decide whether this
         // connection must be ready before they continue.
       };
@@ -1168,7 +1160,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
     const modelsUrl = apiUrl(modelCwd ? `/models?cwd=${encodeURIComponent(modelCwd)}` : "/models");
-    const res = await fetch(modelsUrl, signal ? { signal } : undefined);
+    const res = await apiFetch(modelsUrl, signal ? { signal } : undefined);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json() as ModelsResponse;
     setModelNames(d.models);

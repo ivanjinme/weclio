@@ -7,6 +7,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import type { AgentRuntime } from "../../rpc-manager";
 import { statusForProtocolCode } from "../protocol/http-status";
+import { createSession, resumeSession } from "../session-create-service";
 import { fileIndex } from "../file-index-service";
 import {
   downloadMime,
@@ -705,6 +706,11 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
       }
     }
 
+    if (method === "POST" && url.pathname === "/v1/sessions") {
+      sendJson(res, 200, await createSession(JSON.parse(await readBody(req)), runtime), requestId);
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/v1/sessions") {
       sendJson(res, 200, await listSessionCatalog(runtime), requestId);
       return;
@@ -805,11 +811,7 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     const eventsRoute = /^\/v1\/sessions\/([^/]+)\/events$/.exec(url.pathname);
     if (method === "GET" && eventsRoute) {
       const sessionId = decodeURIComponent(eventsRoute[1]);
-      const cwd = url.searchParams.get("cwd") ?? config.workspace;
-      const existing = runtime.getSession(sessionId);
-      const { session } = existing?.isAlive()
-        ? { session: existing }
-        : await runtime.startSession(sessionId, "", cwd);
+      const session = await resumeSession(sessionId, runtime);
 
       res.writeHead(200, {
         "content-type": "text/event-stream",
@@ -870,11 +872,9 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     const commands = COMMANDS_ROUTE.exec(url.pathname);
     if (method === "POST" && commands) {
       const sessionId = decodeURIComponent(commands[1]);
-      const cwd = url.searchParams.get("cwd") ?? config.workspace;
       try {
         const command = parseAgentCommand(JSON.parse(await readBody(req)));
-        const existing = runtime.getSession(sessionId);
-        const { session } = existing?.isAlive() ? { session: existing } : await runtime.startSession(sessionId, "", cwd);
+        const session = await resumeSession(sessionId, runtime);
         const result = await session.send(command);
         sendJson(res, 200, { success: true, data: result }, requestId);
       } catch (error) {

@@ -90,10 +90,11 @@ export function createAgentClient(options: AgentClientOptions = {}): AgentClient
     async sendCommand(sessionId, command, commandOptions) {
       // 令牌只在内存里；调用方显式给定的头优先。
       const baseHeaders = { ...(await options.headers?.()), "Content-Type": "application/json" };
-      const headers = hasAgentCredential() ? agentAuthHeaders(baseHeaders) : baseHeaders;
+      const url = routes.commands(sessionId);
+      const headers = hasAgentCredential() ? agentAuthHeaders(url, baseHeaders) : baseHeaders;
       let response: Response;
       try {
-        response = await doFetch(routes.commands(sessionId), {
+        response = await doFetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify(command),

@@ -4,6 +4,34 @@
 
 export type HostProfile = "next" | "service";
 
+/** 历史 UI 路径只在客户端转换，Service 不保留 Next 别名。 */
+export function resolveApiPath(path: string, profile: HostProfile, method = "GET"): string {
+  if (profile === "next") return path;
+  const boundary = path.search(/[?#]/);
+  const pathname = boundary < 0 ? path : path.slice(0, boundary);
+  const suffix = boundary < 0 ? "" : path.slice(boundary);
+  const aliases: Record<string, string> = {
+    "/cwd/default": "/workspaces/default",
+    "/cwd/validate": "/workspaces/validate",
+    "/cwd/browse": "/workspaces/browse",
+    "/sidebar-pins": "/settings/pins",
+    "/project-trust": "/projects/trust",
+    "/file-index": "/files/index",
+    "/models-config": "/settings/models",
+    "/auth/providers": "/provider-auth/oauth",
+    "/auth/all-providers": "/provider-auth/providers",
+    "/agent/new": "/sessions",
+    "/agent/running/events": "/events",
+  };
+  let resolved = aliases[pathname] ?? pathname;
+  if (pathname === "/sessions" && method.toUpperCase() === "POST") resolved = "/sessions/titles";
+  else if (pathname.startsWith("/models-config/")) resolved = pathname.replace("/models-config/", "/settings/models/");
+  else if (!aliases[pathname] && pathname.startsWith("/auth/")) resolved = pathname.replace("/auth/", "/provider-auth/");
+  else if (/^\/agent\/[^/]+\/bash-output$/.test(pathname)) resolved = pathname.replace("/agent/", "/sessions/");
+  else if (!aliases[pathname] && /^\/agent\/[^/]+$/.test(pathname)) resolved = pathname.replace("/agent/", "/sessions/") + "/state";
+  return resolved + suffix;
+}
+
 export interface ApiBase {
   baseUrl: string;
   basePath: string;

@@ -10,6 +10,7 @@ try {
 } catch { /* package not found, use default */ }
 
 const nextConfig: NextConfig = {
+  distDir: process.env.WECLIO_DEV_UI_DIST_DIR ?? ".next",
   serverExternalPackages: [
     "undici",
     "@earendil-works/pi-coding-agent",

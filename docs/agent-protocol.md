@@ -58,6 +58,7 @@ GET  /api/agent/:sessionId/events → SSE
 ```text
 GET    /healthz                          活性；无需认证；不返回路径/版本
 GET    /v1/info                          需认证；ServiceInfo
+POST   /v1/sessions                      创建/ensure 会话；返回真实 sessionId
 GET    /v1/sessions                      目录 + 运行中 ID
 GET    /v1/sessions/:id                  历史视图（?deferThinking / ?deferMedia）
 GET    /v1/sessions/:id/state            运行态（不创建实例）
@@ -134,12 +135,13 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 
 - Service 对 `WECLIO_AGENT_ALLOWED_ORIGINS` 中的源应答 CORS 预检（`OPTIONS` 204），
   允许 `authorization`、`content-type`、`last-event-id` 请求头。
-- 浏览器客户端一律用内存 Bearer：`lib/agent-credential.ts` 持有令牌，
-  `apiFetch` / `createEventStream` 负责附加。**不使用 Cookie**：
-  `weclio://app` 访问 `http://127.0.0.1` 属跨站，`SameSite=None` 又要求 HTTPS，
-  静态入口注定拿不到 Cookie。
-- 因为 `EventSource` 不能自定义请求头，SSE 改由 `lib/event-stream.ts` 以 fetch 流读取；
-  断线重连策略仍由调用方决定，服务端据 `Last-Event-ID` 置 `connected.resync`。
+- 当前浏览器请求采用内存 Bearer：`lib/agent-credential.ts` 持有令牌，
+  `apiFetch` / `createEventStream` 仅为已选 Service 的 origin + API 路径附加；XHR 上传同样附加。
+- **更正：** 撤回此前“loopback HTTP 必然不能用 Secure Cookie”的未经充分验证的判断。
+  当前保留 Bearer 实现；原生媒体/下载如何认证仍需决策，不能把 API 联通算作整站完成。
+- SSE 由 `lib/event-stream.ts` 以 fetch 流读取，自动重试网络错误/EOF/5xx，
+  保留 `Last-Event-ID`，401/403 等终止性错误不重试；服务端据游标置 `connected.resync`。
+  关闭订阅取消 reader/重试 timer，但不取消 Agent 任务。
 
 ## 5. 会话事件流
 

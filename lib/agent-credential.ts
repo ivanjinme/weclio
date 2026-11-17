@@ -1,7 +1,8 @@
 // Agent Service 凭据：只在内存持有，由可信宿主通道注入。
 // Desktop 走 preload，Web 走服务端注入，本地开发走环境变量；不落 Cookie、不进 URL。
-// 之所以不用 Cookie：weclio://app 访问 http loopback 属跨站，SameSite=None 要求 Secure，
-// 而 loopback HTTP 无法满足，静态入口拿不到 Cookie。
+// 当前采用显式 Bearer，不依赖跨站 Cookie；原生媒体/下载的认证通道另行决策。
+
+import { getApiBase } from "./api-base";
 
 let credential: string | null = null;
 
@@ -19,10 +20,28 @@ export function hasAgentCredential(): boolean {
   return credential !== null;
 }
 
-/** 在给定请求头上补齐 Authorization；已有值不覆盖。 */
-export function agentAuthHeaders(init?: HeadersInit): Headers {
+function isSelectedApiUrl(url: string): boolean {
+  // 不为协议相对地址或反斜杠地址推断凭据归属。
+  if (url.trimStart().startsWith("//") || url.includes("\\")) return false;
+  const { baseUrl, basePath } = getApiBase();
+  const origin = typeof location !== "undefined" && /^https?:$/.test(location.protocol)
+    ? location.origin : undefined;
+  if (!baseUrl && !origin && !url.startsWith("/")) return false;
+  try {
+    const base = new URL(`${baseUrl}${basePath}`, origin ?? "http://agent.invalid");
+    const target = new URL(url, origin ?? base.origin);
+    const prefix = base.pathname.replace(/\/+$/, "");
+    return /^https?:$/.test(base.protocol) && target.origin === base.origin
+      && (target.pathname === prefix || target.pathname.startsWith(`${prefix}/`));
+  } catch {
+    return false;
+  }
+}
+
+/** 只为当前 API 源及路由前缀补齐 Authorization；显式头不覆盖。 */
+export function agentAuthHeaders(url: string, init?: HeadersInit): Headers {
   const headers = new Headers(init);
-  if (credential && !headers.has("authorization")) {
+  if (credential && !headers.has("authorization") && isSelectedApiUrl(url)) {
     headers.set("authorization", `Bearer ${credential}`);
   }
   return headers;

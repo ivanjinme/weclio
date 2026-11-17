@@ -14,6 +14,7 @@ import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/
 import { useI18n } from "@/hooks/useI18n";
 import { apiUrl } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
+import { agentAuthHeaders } from "@/lib/agent-credential";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -160,10 +161,9 @@ function uploadFiles(
     files.forEach((file) => formData.append("files", file, file.name));
 
     const xhr = new XMLHttpRequest();
-    xhr.open(
-      "POST",
-      apiUrl(`/files/${encodeFilePathForApi(targetDirectory)}?type=upload&conflict=${strategy}`),
-    );
+    const url = apiUrl(`/files/${encodeFilePathForApi(targetDirectory)}?type=upload&conflict=${strategy}`);
+    xhr.open("POST", url);
+    agentAuthHeaders(url).forEach((value, name) => xhr.setRequestHeader(name, value));
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && event.total > 0) {
         onProgress(Math.round((event.loaded / event.total) * 100));

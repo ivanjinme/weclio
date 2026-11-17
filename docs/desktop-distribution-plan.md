@@ -63,22 +63,21 @@ Weclio
 | 阶段 | 内容 | 退出条件 |
 | --- | --- | --- |
 | **P1** | 客户端双路由表（`lib/agent/routes.ts`）+ dev 脚本起独立 Service + 浏览器实跑 | 同一 UI 连两种宿主行为一致；SSE 重连/文件/预览/下载/设置可用 |
-**P1 状态（已完成客户端侧，待人工浏览器回归）：**
-
-- 双路由表 `lib/agent/routes.ts`；`/v1` 即 Service 宿主。
-- Service 侧补齐 `context`、`thinking`、`auto-name`、`bash-output`、`/v1/events`。
-- 凭据：内存 Bearer（`lib/agent-credential.ts`）+ `apiFetch` 单一出口 + fetch 流式 SSE
-  （`lib/event-stream.ts`）。不用 Cookie，因为在 `weclio://app → http loopback` 下必然失效。
-- Service 对白名单源应答 CORS 预检。
-- 已用 CLI 实测：`/healthz` 200、无令牌 401、带令牌 `/v1/info` 200、预检 204 +
-  `access-control-allow-origin`、`/v1/events` 首帧 `running`、`/v1/sessions` 带 CORS 头。
-- 待人工确认：`npm run dev:service-ui` 下的聊天、SSE 重连、历史、文件树、预览、下载、设置。
-
 | **P2** | 退役 Web 进程内 Agent（Next 只留 UI） | Web 内 `import rpc-manager` = 0；`next start` 只提供 UI |
 | **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 |
 | **P4** | 捆绑 Runtime（原 B2） | 干净 Windows 无 Node 可跑；VM 用系统 Node 跑同一产物 |
 | **P5** | 生命周期与更新门禁（原 B3） | 忙任务不被静默终止；更新失败可恢复 |
 | **P6** | 三产物构建 + 原子切换 + 发行（原 B4/B5） | 安装包无 Next Server；真实 A→B 升级不丢数据 |
+
+**P1 状态：进行中，原生媒体/下载认证待决策，不进入 P2。**
+
+- 浏览器已验证侧栏、历史、模型设置；隔离本机模型 fixture 已验证新建、流式聊天、Service 重启后的历史恢复/续聊。
+- 测试代理强制断开真实 SSE 后，浏览器自动恢复并携带 `Last-Event-ID`；XHR 上传在隔离工作区真实落盘。
+- 修复 Next/Service 的 workspace、pins、titles、models/auth 等路径映射；补齐创建/ensure 与冷启动恢复。
+- 默认工作区与既有 Next 行为对齐；开发脚本端口冲突立即失败，只清理自有进程树，使用独立 Next 输出目录。
+- 鉴权采用受 origin/path 限制的内存 Bearer。**撤回此前“loopback HTTP 必然无法使用 Cookie”的错误判断。**
+- **阻塞：** 原生 `img/audio/iframe` 和下载链接不能附 Bearer。fetch Blob 会改变内存/Range/大文件行为，不能无审批悄悄替换；资源票据或 Cookie/同源通道同样需要明确决策。
+- 当前验证记录见 [P1 回归](p1-regression.md)；仍需真实 provider/OAuth/打包后 Desktop 验收。
 
 **纪律：** P1 通过前冻结进一步的服务抽取与宿主层打磨；不新增运行时开关或第二套 fallback。
 

@@ -715,7 +715,7 @@ function DocumentViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<
     : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
 
   const refreshMetadata = useCallback((signal: AbortSignal) => {
-    void fetch(getFileApiUrl(filePath, "meta", sourceSessionId), { signal })
+    void apiFetch(getFileApiUrl(filePath, "meta", sourceSessionId), { signal })
       .then((r) => r.json())
       .then((d: { size?: number; error?: string }) => {
         if (signal.aborted) return;

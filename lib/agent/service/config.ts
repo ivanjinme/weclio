@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { getDefaultWorkspacePath } from "../../default-workspace";
 
 export interface ServiceConfig {
   host: string;
@@ -55,7 +56,7 @@ function resolvePort(value: string | undefined): number {
 
 export function resolveServiceConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig {
   const stateDir = absolutePath(env.WECLIO_AGENT_STATE_DIR ?? join(homedir(), ".weclio", "agent-service"), "WECLIO_AGENT_STATE_DIR");
-  const workspace = absolutePath(env.WECLIO_AGENT_WORKSPACE ?? join(stateDir, "workspace"), "WECLIO_AGENT_WORKSPACE");
+  const workspace = absolutePath(env.WECLIO_AGENT_WORKSPACE ?? getDefaultWorkspacePath(env.PI_WEB_DEFAULT_CWD ?? ""), "WECLIO_AGENT_WORKSPACE");
   const host = env.WECLIO_AGENT_HOST ?? "127.0.0.1";
   // Remote 是延期阶段；先把地址限制在回环，避免误暴露 shell 能力。
   if (!LOOPBACK_HOSTS.has(host)) throw new Error(`Remote binding is not supported yet: ${host}`);

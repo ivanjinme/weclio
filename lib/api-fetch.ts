@@ -11,10 +11,10 @@ export interface ApiFetchInit extends RequestInit {
 /** 发起请求；path 可以是相对基址的路径，也可以是已经拼好的绝对 URL。 */
 export async function apiFetch(path: string, init: ApiFetchInit = {}): Promise<Response> {
   const { anonymous, headers, ...rest } = init;
-  const resolved = /^[a-z]+:\/\//i.test(path) ? path : apiUrl(path);
+  const resolved = /^(?:[a-z]+:)?\/\//i.test(path) ? path : apiUrl(path);
   return fetch(resolved, {
     ...rest,
-    headers: !anonymous && hasAgentCredential() ? agentAuthHeaders(headers) : headers,
+    headers: !anonymous && hasAgentCredential() ? agentAuthHeaders(resolved, headers) : headers,
   });
 }
 
