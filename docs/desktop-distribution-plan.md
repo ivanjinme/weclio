@@ -37,7 +37,7 @@ Weclio
 | **Refactor** | [updater](../electron/updates.mjs) 从 `resources/server/package.json` require 生产依赖 | 依赖属于 Desktop host，必须在删除旧 server 前独立，避免更新功能失效 |
 | **Refactor** | [`main.mjs`](../electron/main.mjs) 退出停服务；[`production.mjs`](../electron/production.mjs) Windows `taskkill /T /F`；只有单个本地 URL | 改为明确管理自有 Local 进程及安全关停；退出/后台产品策略到 B3 决定，不默认增加提醒或常驻管理 |
 | **Keep + Refactor** | [Ed25519 manifest](../electron/update-signature.mjs)、[EXE SHA512/大小复验](../electron/updates.mjs)、[显式安装/gate/draft veto/失败恢复](../electron/update-install.mjs) | 保留信任链；gate 目前主要覆盖 `rpc-manager`，Skills/Plugins 安装也必须纳入 Service admission |
-| **Refactor，方向已定** | [`COMMANDS.md`](../COMMANDS.md) 使用 `ivanjinme/weclio`；源码 [`desktop-update.json`](../resources/desktop-update.json) / [`update-release.mjs`](../electron/update-release.mjs) 仍有 `pi-web` feed/命名来源 | 按用户确认统一为新 weclio 仓库/包；不维护旧 feed 或旧客户端升级通道，保留可信来源与验签 |
+| **Done** | [`COMMANDS.md`](../COMMANDS.md)、[`desktop-update.json`](../resources/desktop-update.json) / [`update-release.mjs`](../electron/update-release.mjs)、npm 包名统一到 `ivanjinme/weclio` 与 `@weclio/web` | 不维护旧 feed 或旧客户端升级通道，保留可信来源与验签；Ed25519 密钥未轮换 |
 | **Defer** | 新安装框架、daemon/后台自动发现、旧客户端过渡、多平台桌面同时重做、Local 热更新器、自动健康回滚、真实 Remote 部署/升级 | 没有当前需求不引入；本地主线 Windows x64，未来 Remote 优先 Linux VM/容器 |
 
 **证据边界：** 当前未捆绑 Node/npm/Git/Bash，资源主要是 rg/fd（[`production`](../electron/production.mjs)、[`builder`](../electron/builder.json)、[runtime](../resources/runtime)）。当前 CI 是 npm 发布/tarball smoke，不是 Windows 安装升级流水线（[workflows](../.github/workflows)）。Ed25519 更新验签不等于 Authenticode，工具哈希不等于数字签名；[合成 updater Range 测试](../electron/updates.integration.test.mjs) 不证明真实 NSIS A→B 或差分升级成功。不以旧交接记录的实验数字承诺新包体/启动收益。
@@ -185,7 +185,7 @@ Weclio
 - **模块/修改：** Client/Service 发布 metadata、`release/update-*`、CI 和发布说明。版本/能力握手、Local 更新保护在前面已完成，不到发布阶段才补安全。
 - **版本政策：** Desktop/Web/独立 Service 可独立发版，Protocol 有自己的版本；当前只验证新 Desktop 与内置 Local 的组合。不预建尚不存在的 Remote 历史版本矩阵；真实 Remote 独立发行/升级运维随 A4 再做。
 - **Keep / Refactor：** 重用 Ed25519 验签、EXE SHA512/大小复验、stable semver/不降级、后台下载、显式安装、draft veto/失败恢复、NSIS+blockmap/full-download。发布地址和包命名统一到 weclio，保留密码学校验，不为旧 feed/cache 名称增加兼容分支；重命名不要求重建签名机制或无故轮换密钥。
-- **首次发行：** 正式发布前重新发布新 weclio 包，测试全新安装；不要求旧 pi-web 客户端自动迁入，也不重置用户原有 Agent 数据。后续更新用两个新 weclio 版本/候选安装包验证 A→B，而不是设计旧客户端跨包升级。
+- **首次发行：** 正式发布前重新发布新 weclio 包，测试全新安装；旧 `@weclio/pi-web` 桌面安装从未接入更新通道，因此不设计跨包迁移，也不重置用户原有 Agent 数据。后续更新用两个新 weclio 版本/候选安装包验证 A→B，而不是设计旧客户端跨包升级。
 - **更新测试：** 下载中可用、坏签名/hash 拒绝、断流重试、busy/race/draft veto/超时、安装器启动失败恢复、重开与数据完整；记录实际差分/全量传输，不凭 blockmap 存在宣称差分已成功。运行任务不通过更新流程静默强杀。
 - **数据：** 默认保持 JSONL、workspace、auth/settings/trust 和用户包；确有不兼容格式/路径变化，才为该变更做一次性迁移、备份/恢复验证。二进制回退不冒充数据恢复，不先建设迁移/自动回滚平台。
 - **依赖：** B4.2 + A3/A5；不依赖 Remote 环境、旧客户端或旧 feed。新包具体发布字段随 B4/B5 核对，不是当前额外架构决策。

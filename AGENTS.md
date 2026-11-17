@@ -20,4 +20,10 @@ remain the source of truth for implementation details.
 
 ## Commands
 
-- Read `COMMANDS.md` before running checks, builds, or releases.
+- Read `COMMANDS.md` before running checks or builds.
+- Skip it for tasks that run no project command.
+
+## Release
+
+- Read `RELEASE.md` only when building, signing or publishing a desktop release.
+- Skip it for routine work; release steps are low frequency.
