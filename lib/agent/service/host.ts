@@ -1,11 +1,14 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { createReadStream, statSync, watch, writeFileSync, type Stats } from "node:fs";
+import { createReadStream, realpathSync, statSync, watch, writeFileSync, type Stats } from "node:fs";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { AgentRuntime } from "../../rpc-manager";
+import { normalizeFilePathSlashes } from "../../file-paths";
 import { statusForProtocolCode } from "../protocol/http-status";
 import { createSession, resumeSession } from "../session-create-service";
 import { fileIndex } from "../file-index-service";
@@ -20,6 +23,8 @@ import {
   readTextFile,
   renderDocumentPreview,
   resolveFileTarget,
+  validateDocumentPreview,
+  isWindowsAbsoluteFilePath,
   writeTextFile,
   resolveUploadDirectory,
 } from "../files-service";
@@ -85,6 +90,7 @@ import {
 import { AgentProtocolError, parseAgentCommand, type AgentProtocolErrorCode } from "../protocol/validate";
 import { PROTOCOL_VERSION } from "../protocol/version";
 import type { ServiceConfig } from "./config";
+import { createResourceTicketSigner, type ResourceTicketResource } from "../resource-ticket";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const COMMANDS_ROUTE = /^\/v1\/sessions\/([^/]+)\/commands$/;
@@ -187,35 +193,41 @@ async function readLimitedBody(req: IncomingMessage, limit: number): Promise<Buf
 }
 
 /** 单段 Range 流式响应；非法区间返回 416 并带总长度。 */
-function sendFileStream(
+async function sendFileStream(
   req: IncomingMessage,
   res: ServerResponse,
   filePath: string,
   stat: Stats,
   contentType: string,
   asDownload: boolean,
-): void {
+  resourceTicket = false,
+  handle?: FileHandle,
+): Promise<void> {
   const headers = fileResponseHeaders(filePath, contentType, asDownload);
-  const rangeHeader = req.headers.range;
-  if (!rangeHeader) {
-    res.writeHead(200, { ...headers, "Content-Length": String(stat.size) });
-    createReadStream(filePath).pipe(res);
-    return;
+  if (resourceTicket) headers["Cache-Control"] = "no-store";
+  try {
+    const rangeHeader = req.method === "GET" ? req.headers.range : undefined;
+    const range = rangeHeader ? parseByteRange(rangeHeader, stat.size) : null;
+    if (rangeHeader && (range === "invalid" || range === null)) {
+      res.writeHead(416, { ...headers, "Content-Range": `bytes */${stat.size}`, "Content-Length": "0" });
+      res.end();
+      return;
+    }
+    const bounds = range && range !== "invalid" ? range : undefined;
+    res.writeHead(bounds ? 206 : 200, {
+      ...headers,
+      "Content-Length": String(bounds ? bounds.end - bounds.start + 1 : stat.size),
+      ...(bounds ? { "Content-Range": `bytes ${bounds.start}-${bounds.end}/${stat.size}` } : {}),
+    });
+    if (req.method === "HEAD") { res.end(); return; }
+    const source = handle ? handle.createReadStream(bounds) : createReadStream(filePath, bounds);
+    const close = () => source.destroy();
+    res.once("close", close);
+    try { await pipeline(source, res); } finally { res.off("close", close); }
+  } finally {
+    // HEAD、416、流错误和客户端断开都必须释放预先打开的描述符。
+    await handle?.close();
   }
-
-  const range = parseByteRange(rangeHeader, stat.size);
-  if (range === "invalid" || range === null) {
-    res.writeHead(416, { ...headers, "Content-Range": `bytes */${stat.size}` });
-    res.end();
-    return;
-  }
-  const length = range.end - range.start + 1;
-  res.writeHead(206, {
-    ...headers,
-    "Content-Length": String(length),
-    "Content-Range": `bytes ${range.start}-${range.end}/${stat.size}`,
-  });
-  createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
 }
 
 function sendFileWatch(res: ServerResponse, filePath: string, stat: Stats): void {
@@ -260,17 +272,31 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
   const { runtime, config } = options;
   // 每个 Service 实例自己的 OAuth 登录状态：不跨实例共享挂起会话。
   const oauthLogins = createOAuthLoginManager();
+  const resourceTickets = createResourceTicketSigner(options.instanceId);
+  const allowedOrigins = configuredOrigins();
+  // CSP 来源只能是完整受信任源，不能把通配符或指令注入 frame-ancestors。
+  const frameOrigins = allowedOrigins.filter((origin) => {
+    try {
+      const parsed = new URL(origin);
+      return /^[a-z][a-z0-9+.-]*:\/\/[^\s;'"*]+$/i.test(origin)
+        && !parsed.username && !parsed.password && (parsed.pathname === "" || parsed.pathname === "/")
+        && !parsed.search && !parsed.hash;
+    } catch { return false; }
+  });
 
   const server = createServer((req, res) => {
     void handle(req, res).catch((error) => {
+      if (res.headersSent || res.destroyed) { res.destroy(); return; }
       const requestId = randomUUID();
-      const message = error instanceof Error ? error.message : String(error);
+      const resourceRoute = req.url?.split("?")[0]?.startsWith("/v1/resources/");
+      const message = resourceRoute && !(error instanceof AgentProtocolError)
+        ? "Resource request failed" : error instanceof Error ? error.message : String(error);
       if (error instanceof AgentProtocolError) {
         sendError(res, statusForProtocolCode(error.code), error.code, message, requestId);
         return;
       }
       sendError(res, 500, "command_failed", message, requestId);
-      console.error("[agent-service] request failed:", message);
+      if (!resourceRoute) console.error("[agent-service] request failed:", message);
     });
   });
 
@@ -278,6 +304,14 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     const requestId = randomUUID();
     const method = req.method ?? "GET";
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+
+    const resourceRoute = url.pathname.startsWith("/v1/resources/");
+    const ticketContent = url.pathname === "/v1/resources/content" && (method === "GET" || method === "HEAD");
+    if (resourceRoute) {
+      res.setHeader("cache-control", "no-store");
+      res.setHeader("referrer-policy", "no-referrer");
+      res.setHeader("x-content-type-options", "nosniff");
+    }
 
     // 最小活性检查：不返回路径、版本或配置。
     if (method === "GET" && url.pathname === "/healthz") {
@@ -287,12 +321,12 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
 
     // 跨源浏览器客户端（静态 UI / 本地 dev）需要 CORS 与预检；Origin 白名单仍未放宽。
     const origin = req.headers.origin;
-    const corsAllowed = origin !== undefined && isAllowedOrigin(req);
+    const corsAllowed = origin !== undefined && isAllowedOrigin(req, allowedOrigins);
     if (corsAllowed) {
       res.setHeader("access-control-allow-origin", origin!);
       res.setHeader("vary", "origin");
       res.setHeader("access-control-allow-headers", "authorization, content-type, last-event-id");
-      res.setHeader("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+      res.setHeader("access-control-allow-methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
       res.setHeader("access-control-max-age", "600");
     }
 
@@ -308,14 +342,74 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
 
     const business = url.pathname.startsWith("/v1/");
     if (business) {
-      if (!authorized(req, config.token)) {
+      if (!ticketContent && !authorized(req, config.token)) {
         sendError(res, 401, "unauthorized", "Missing or invalid service token", requestId);
         return;
       }
-      if (!isAllowedOrigin(req)) {
+      if (!isAllowedOrigin(req, allowedOrigins)) {
         sendError(res, 403, "forbidden_origin", "Cross-origin requests are not allowed", requestId);
         return;
       }
+    }
+
+    if (method === "POST" && url.pathname === "/v1/resources/tickets") {
+      let body: unknown;
+      try { body = JSON.parse(await readBody(req)); } catch (error) {
+        if (error instanceof AgentProtocolError) throw error;
+        throw new AgentProtocolError("invalid_argument", "Invalid resource request");
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new AgentProtocolError("invalid_argument", "Invalid resource request");
+      }
+      const input = body as Record<string, unknown>;
+      if (typeof input.filePath !== "string" || !input.filePath
+        || (!path.isAbsolute(input.filePath) && !isWindowsAbsoluteFilePath(input.filePath))
+        || typeof input.kind !== "string" || !["read", "preview", "download"].includes(input.kind)
+        || (input.sessionId !== undefined && input.sessionId !== null && typeof input.sessionId !== "string")
+        || (input.source !== undefined && input.source !== "bash-output")
+        || (input.source === "bash-output" && (input.kind !== "download" || typeof input.sessionId !== "string" || !input.sessionId.trim()))) {
+        throw new AgentProtocolError("invalid_argument", "Invalid resource request");
+      }
+      const resource = input as unknown as ResourceTicketResource;
+      const target = await resolveResource(resource);
+      try {
+        const canonical = { filePath: resource.source === "bash-output" ? target.filePath : realpathSync(target.filePath),
+          kind: resource.kind, sessionId: resource.sessionId, source: resource.source };
+        if (!resource.source) {
+          // 真实路径也必须可独立授权，避免链接别名扩大票据的能力。
+          await resolveResource(canonical);
+        }
+        sendJson(res, 200, resourceTickets.issue(canonical), requestId);
+      } finally { await target.handle?.close(); }
+      return;
+    }
+
+    if (ticketContent) {
+      if ([...url.searchParams.keys()].some((key) => key !== "ticket") || url.searchParams.getAll("ticket").length !== 1) {
+        throw new AgentProtocolError("invalid_argument", "Only one ticket parameter is allowed");
+      }
+      const resource = resourceTickets.verify(url.searchParams.get("ticket") ?? "");
+      const target = await resolveResource(resource);
+      // 普通票据绑定签发时的真实路径；会话引用也不能用后来替换的链接扩大范围。
+      if (!resource.source && realpathSync(target.filePath) !== resource.filePath) {
+        throw new AgentProtocolError("forbidden", "Resource path has changed");
+      }
+      if (resource.kind === "preview") {
+        const html = await renderDocumentPreview(target.filePath, target.stat);
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "content-length": String(Buffer.byteLength(html)),
+          "content-security-policy": `default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'${frameOrigins.length ? " " + frameOrigins.join(" ") : ""}`,
+          "x-request-id": requestId,
+        });
+        res.end(method === "HEAD" ? undefined : html);
+      } else {
+        await sendFileStream(req, res, target.filePath, target.stat,
+          resource.source === "bash-output" ? "text/plain; charset=utf-8"
+            : resource.kind === "read" ? readBinaryMime(target.filePath, target.stat)! : downloadMime(target.filePath),
+          resource.kind === "download", true, target.handle);
+      }
+      return;
     }
 
     if (method === "GET" && url.pathname === "/v1/info") {
@@ -439,14 +533,14 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
         if (type === "read") {
           const binaryMime = readBinaryMime(filePath, stat);
           if (binaryMime) {
-            sendFileStream(req, res, filePath, stat, binaryMime, false);
+            await sendFileStream(req, res, filePath, stat, binaryMime, false);
             return;
           }
           sendJson(res, 200, readTextFile(filePath, stat, allowedRoots), requestId);
           return;
         }
         if (type === "download") {
-          sendFileStream(req, res, filePath, stat, downloadMime(filePath), true);
+          await sendFileStream(req, res, filePath, stat, downloadMime(filePath), true);
           return;
         }
         if (type === "meta") {
@@ -888,6 +982,29 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     }
 
     sendError(res, 404, "not_found", `No route for ${method} ${url.pathname}`, requestId);
+  }
+
+  async function resolveResource(resource: ResourceTicketResource): Promise<{ filePath: string; stat: Stats; handle?: FileHandle }> {
+    if (resource.source === "bash-output") {
+      const resolved = resolveBashOutputPath(resource.filePath, tmpdir());
+      if (!resolved) throw new AgentProtocolError("invalid_argument", "Invalid bash output path");
+      if (!resource.sessionId || !await isBashOutputPathReferencedBySession(resolved, resource.sessionId)) {
+        throw new AgentProtocolError("forbidden", "Access denied");
+      }
+      try {
+        const { handle, fileInfo } = await openRegularFileNoFollow(resolved);
+        return { filePath: resolved, stat: fileInfo, handle };
+      } catch {
+        throw new AgentProtocolError("forbidden", "Bash output is unavailable or not a regular file");
+      }
+    }
+    const target = await resolveFileTarget(normalizeFilePathSlashes(resource.filePath).split("/"), resource.kind, resource.sessionId);
+    if (!target.stat.isFile()) throw new AgentProtocolError("invalid_argument", "Not a file");
+    if (resource.kind === "read" && !readBinaryMime(target.filePath, target.stat)) {
+      throw new AgentProtocolError("invalid_argument", "Resource read requires a binary file");
+    }
+    if (resource.kind === "preview") validateDocumentPreview(target.filePath, target.stat);
+    return target;
   }
 
   await new Promise<void>((resolveListen, rejectListen) => {

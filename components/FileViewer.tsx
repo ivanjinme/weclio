@@ -32,6 +32,9 @@ import { markdownFallbackReason } from "@/lib/markdown-editing";
 import { apiUrl } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
 import { createEventStream, type EventStreamLike } from "@/lib/event-stream";
+import { ResourceDownloadButton } from "./ResourceDownloadButton";
+import { useResourceUrl } from "@/hooks/useResourceUrl";
+import { ResourceImage } from "./ResourceImage";
 
 interface Props {
   filePath: string;
@@ -217,9 +220,7 @@ function getFileApiUrl(
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
   const { t } = useI18n();
   return (
-    <a
-      href={getFileApiUrl(filePath, "download", sourceSessionId)}
-      download={getFileName(filePath)}
+    <ResourceDownloadButton filePath={filePath} sessionId={sourceSessionId}
       title={t("i18n.downloadFile")}
       aria-label={t("i18n.downloadFile")}
       className="file-viewer-icon-button"
@@ -229,7 +230,7 @@ function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceS
         <polyline points="7 10 12 15 17 10" />
         <line x1="12" y1="15" x2="12" y2="3" />
       </svg>
-    </a>
+    </ResourceDownloadButton>
   );
 }
 
@@ -478,7 +479,9 @@ function ImageViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
     };
   }, [active, filePath, sourceSessionId]);
 
-  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
+  const resource = useResourceUrl({ filePath, kind: "read", sessionId: sourceSessionId, revision: bust });
+  const src = resource.url;
+  const resourceError = error ?? resource.error;
 
   const formatSizeStr = size != null ? formatSize(size) : null;
 
@@ -536,9 +539,11 @@ function ImageViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
           backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
         }}
       >
-        {error ? (
-          <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>
-        ) : (
+        {resourceError ? (
+          <div style={{ color: "#f87171", fontSize: 13 }}>
+            {resourceError} <button onClick={() => { setError(null); resource.refresh(); }}>{t("i18n.refresh")}</button>
+          </div>
+        ) : src ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={src}
@@ -555,7 +560,7 @@ function ImageViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
               boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
             }}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -626,7 +631,9 @@ function AudioViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
     };
   }, [active, filePath, sourceSessionId]);
 
-  const src = getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined);
+  const resource = useResourceUrl({ filePath, kind: "read", sessionId: sourceSessionId, revision: bust }, { native: true });
+  const src = resource.url;
+  const resourceError = error ?? resource.error;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -678,9 +685,9 @@ function AudioViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<Pro
         }}
       >
         <div style={{ width: "min(680px, 100%)" }}>
-          {error && (
+          {resourceError && (
             <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12, textAlign: "center" }}>
-              {error}
+              {resourceError} <button onClick={() => { setError(null); resource.refresh(); }}>{t("i18n.refresh")}</button>
             </div>
           )}
           <audio
@@ -710,9 +717,9 @@ function DocumentViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<
 
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
-  const previewUrl = isPdf
-    ? getFileApiUrl(filePath, "read", sourceSessionId, bust ? { v: bust } : undefined)
-    : getFileApiUrl(filePath, "preview", sourceSessionId, bust ? { v: bust } : undefined);
+  const resource = useResourceUrl({ filePath, kind: isPdf ? "read" : "preview", sessionId: sourceSessionId, revision: bust }, { native: isPdf });
+  const previewUrl = resource.url;
+  const resourceError = error ?? resource.error;
 
   const refreshMetadata = useCallback((signal: AbortSignal) => {
     void apiFetch(getFileApiUrl(filePath, "meta", sourceSessionId), { signal })
@@ -794,6 +801,8 @@ function DocumentViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<
           {getRelativeFilePath(filePath, cwd)}
         </span>
         <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
+        <button className="file-viewer-icon-button" title={t("i18n.refresh")} aria-label={t("i18n.refresh")}
+          onClick={() => { setError(null); resource.refresh(); }}>↻</button>
         {size != null && <span>{formatSize(size)}</span>}
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         <span
@@ -814,19 +823,20 @@ function DocumentViewer({ filePath, active = true, cwd, sourceSessionId }: Omit<
         </span>
       </div>
       <div style={{ flex: 1, minHeight: 0, background: "var(--bg-panel)" }}>
-        {error ? (
+        {resourceError ? (
           <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "#f87171", fontSize: 13, textAlign: "center" }}>
-            {error}
+            {resourceError}
           </div>
-        ) : (
+        ) : previewUrl ? (
           <iframe
             key={previewUrl}
             src={previewUrl}
+            referrerPolicy="no-referrer"
             sandbox={isPdf ? undefined : ""}
             title={t("i18n.previewFile", { file: getFileName(filePath) })}
             style={{ width: "100%", height: "100%", border: "none", background: isPdf ? "var(--bg)" : "#eef1f5" }}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -1278,12 +1288,10 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
                   const imagePath = typeof src === "string"
                     ? resolveLocalFileHref(src, markdownDirectory, cwd ?? markdownDirectory)
                     : null;
-                  const imageSrc = imagePath
-                    ? getFileApiUrl(imagePath, "read", sourceSessionId)
-                    : src;
-                  // Dynamic local paths are served directly by the file API.
+                  if (imagePath) return <ResourceImage filePath={imagePath} sessionId={sourceSessionId} alt={alt ?? ""} loading="lazy" {...props} />;
+                  // 外部图片不携带 Service 凭据。
                   // eslint-disable-next-line @next/next/no-img-element
-                  return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
+                  return <img src={src} alt={alt ?? ""} loading="lazy" {...props} />;
                 },
               }}
             >

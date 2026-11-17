@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { apiUrl } from "@/lib/api-base";
+import { acquireResource, type ResourceLease } from "@/lib/resource-client";
 import { MDXEditor, headingsPlugin, listsPlugin, quotePlugin, thematicBreakPlugin, linkPlugin, linkDialogPlugin,
   imagePlugin, tablePlugin, codeBlockPlugin, codeMirrorPlugin, markdownShortcutPlugin, type MDXEditorMethods } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
-import { getFileDirectory, encodeFilePathForApi } from "@/lib/file-paths";
+import { getFileDirectory } from "@/lib/file-paths";
 import { resolveLocalFileHref } from "@/lib/file-links";
 import { markdownUrlTransform } from "@/lib/markdown";
 import { isSafeMarkdownRoundTrip, markdownEnvelope, markdownFallbackReason, restoreMarkdownEnvelope } from "@/lib/markdown-editing";
@@ -22,16 +22,38 @@ export default function InitializedMarkdownEditor(props: MarkdownEditorProps) {
   useLayoutEffect(() => { latest.current = props; });
   useEffect(() => () => { latest.current.onComposition(false); latest.current.onFlush(); }, []);
   const directory = getFileDirectory(props.filePath);
+  const resourceKey = JSON.stringify([props.filePath, directory, props.cwd, props.sourceSessionId]);
+  const resources = useRef<{ key: string; controller: AbortController; leases: Set<ResourceLease>; pending: Map<string, Promise<string>> } | null>(null);
+  useLayoutEffect(() => {
+    const scope = { key: resourceKey, controller: new AbortController(), leases: new Set<ResourceLease>(), pending: new Map<string, Promise<string>>() };
+    resources.current = scope;
+    return () => { scope.controller.abort(); for (const lease of scope.leases) lease.release(); if (resources.current === scope) resources.current = null; };
+  }, [resourceKey]);
   const plugins = useMemo(() => [headingsPlugin(), listsPlugin(), quotePlugin(), thematicBreakPlugin(),
     linkPlugin({ validateUrl: (url) => Boolean(markdownUrlTransform(url)) }), linkDialogPlugin(),
     imagePlugin({ imagePreviewHandler: async (url) => {
       const local = resolveLocalFileHref(url, directory, props.cwd ?? directory);
-      const params = new URLSearchParams({ type: "read" });
-      if (props.sourceSessionId) params.set("sessionId", props.sourceSessionId);
-      return local ? apiUrl(`/files/${encodeFilePathForApi(local)}?${params}`) : markdownUrlTransform(url);
+      if (!local) return markdownUrlTransform(url);
+      const scope = resources.current;
+      if (!scope || scope.key !== resourceKey) return "";
+      let pending = scope.pending.get(local);
+      if (!pending) {
+        pending = acquireResource({ filePath: local, kind: "read", sessionId: props.sourceSessionId }, { signal: scope.controller.signal })
+          .then((lease) => {
+            if (scope.controller.signal.aborted) { lease.release(); return ""; }
+            scope.leases.add(lease);
+            return lease.url;
+          }).catch((error: unknown) => {
+            scope.pending.delete(local);
+            if (scope.controller.signal.aborted) return "";
+            throw error;
+          });
+        scope.pending.set(local, pending);
+      }
+      return pending;
     } }), tablePlugin(), codeBlockPlugin({ defaultCodeBlockLanguage: "" }),
     codeMirrorPlugin({ codeBlockLanguages: { "": "Text", js: "JavaScript", ts: "TypeScript", jsx: "JSX", tsx: "TSX", css: "CSS", html: "HTML", bash: "Shell", json: "JSON", python: "Python" } }),
-    markdownShortcutPlugin()], [directory, props.cwd, props.sourceSessionId]);
+    markdownShortcutPlugin()], [directory, props.cwd, props.sourceSessionId, resourceKey]);
   useLayoutEffect(() => {
     const incoming = props.value;
     if (ready && incoming === lastText.current) return;

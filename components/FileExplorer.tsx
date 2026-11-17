@@ -15,6 +15,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { apiUrl } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
 import { agentAuthHeaders } from "@/lib/agent-credential";
+import { ResourceDownloadButton } from "./ResourceDownloadButton";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -397,9 +398,8 @@ function TreeNode({
           </button>
         )}
         {hovered && !node.isDir && (
-          <a
-            href={apiUrl(`/files/${encodeFilePathForApi(node.fullPath)}?type=download`)}
-            download
+          <ResourceDownloadButton
+            filePath={node.fullPath}
             onClick={(e) => e.stopPropagation()}
             title={t("files.download")}
             style={{
@@ -429,7 +429,7 @@ function TreeNode({
               <polyline points="7 10 12 15 17 10" />
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
-          </a>
+          </ResourceDownloadButton>
         )}
       </div>
       {node.isDir && open && (

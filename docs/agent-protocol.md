@@ -58,6 +58,9 @@ GET  /api/agent/:sessionId/events → SSE
 ```text
 GET    /healthz                          活性；无需认证；不返回路径/版本
 GET    /v1/info                          需认证；ServiceInfo
+POST   /v1/resources/tickets             Bearer 签发资源票据
+GET    /v1/resources/content?ticket=...   只读票据兑换；支持 Range
+HEAD   /v1/resources/content?ticket=...   完整表示的头，无响应体
 POST   /v1/sessions                      创建/ensure 会话；返回真实 sessionId
 GET    /v1/sessions                      目录 + 运行中 ID
 GET    /v1/sessions/:id                  历史视图（?deferThinking / ?deferMedia）
@@ -138,10 +141,33 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 - 当前浏览器请求采用内存 Bearer：`lib/agent-credential.ts` 持有令牌，
   `apiFetch` / `createEventStream` 仅为已选 Service 的 origin + API 路径附加；XHR 上传同样附加。
 - **更正：** 撤回此前“loopback HTTP 必然不能用 Secure Cookie”的未经充分验证的判断。
-  当前保留 Bearer 实现；原生媒体/下载如何认证仍需决策，不能把 API 联通算作整站完成。
+  当前保留 Bearer；原生资源采用下面的 Blob/Ticket 通道，不继续更改 Cookie 架构。
 - SSE 由 `lib/event-stream.ts` 以 fetch 流读取，自动重试网络错误/EOF/5xx，
   保留 `Last-Event-ID`，401/403 等终止性错误不重试；服务端据游标置 `connected.resync`。
   关闭订阅取消 reader/重试 timer，但不取消 Agent 任务。
+
+### 4.3 资源访问
+
+共享 SDK `acquireResource({ filePath, kind, sessionId?, revision?, source? }, { native?, signal? })`
+返回 `{ url, transport, expiresAt?, release() }`。旧 Next 宿主继续同源直读；Service 的小资源以 Bearer
+读取并生成 Blob URL（严格 2MiB 传输上限，切换/卸载释放）；PDF、音频、SVG、大资源和下载使用 Ticket。
+DOCX Blob 预览必须保留 iframe sandbox，SVG 使用原生 URL 保留服务端 CSP。
+
+签发请求：`POST /v1/resources/tickets`，JSON `{ filePath, kind: "read"|"preview"|"download", sessionId?, source?: "bash-output" }`。
+需要正常 Bearer 和来源检查；返回 `{ ticket, expiresAt }`，expiresAt 为 epoch milliseconds。
+普通资源共用 `resolveFileTarget` 的根/realpath/会话引用授权；Bash 输出仅允许 download + sessionId，
+继续使用 spill 路径、真实 bashExecution 引用和 no-follow 句柄授权。
+
+兑换仅允许 `GET|HEAD /v1/resources/content?ticket=...`，不附 Bearer；只接受一个 ticket 参数，
+其他路径、方法、用途不可复用。签名绑定实例、规范化真实资源路径、用途、会话/source 和 15分钟有效期；
+每个宿主内存随机 HMAC 密钥，重启失效，无票据记录或逐票撤销表。兑换必须重新授权；沿用既有根缓存，
+不承诺瞬时撤销或不可变文件快照，也不引入多用户权限模型。
+
+GET 支持单段 Range 206/416；HEAD 忽略 Range，返回完整表示的头且不返回字节。
+资源响应/错误采用 no-store、no-referrer、nosniff；预览保持受限 CSP，允许显式受信任 UI 作为 frame ancestor。
+长期 Bearer 不进入 URL；Ticket URL 本身仍是敏感能力，部署者须对代理访问日志屏蔽该查询参数。
+SDK 不把 URL/底层传输错误原文暴露到异常。下载每次点击重新签发；过期/重启后需重新取得资源 URL，
+预览工具栏或媒体错误态可刷新，不通过定时更换 src 打断当前视图。
 
 ## 5. 会话事件流
 

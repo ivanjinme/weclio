@@ -47,7 +47,8 @@ Deployment:
 | Tool selection | `lib/tool-presets.ts` |
 | Project identity (session cwd) | `lib/session-reader.ts`, `components/SessionSidebar.tsx` |
 | Project trust | `lib/project-trust.ts`, `lib/rpc-manager.ts` |
-| File authorization | `lib/file-access.ts`, `lib/path-security.ts` |
+| File/resource authorization | `lib/agent/files-service.ts`, `lib/file-access.ts`, `lib/path-security.ts` |
+| Browser resources / tickets | `lib/resource-client.ts`, `hooks/useResourceUrl.ts`, `lib/agent/resource-ticket.ts` |
 | Referenced external files | `lib/session-file-references.ts` |
 | Default workspace | `lib/default-workspace.ts` |
 | Shared file drafts | `components/AppShell.tsx`, `lib/draft-store.ts`, `lib/file-draft.ts` |

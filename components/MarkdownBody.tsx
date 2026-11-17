@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, type MouseEvent } from "react";
-import { apiUrl } from "@/lib/api-base";
+import { ResourceImage } from "./ResourceImage";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref } from "@/lib/file-links";
-import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 import type { Citation } from "@/lib/types";
@@ -14,11 +13,12 @@ interface MarkdownBodyProps {
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
+  sessionId?: string;
   onOpenFile?: (filePath: string) => void;
   citations?: Citation[];
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, citations }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, sessionId, onOpenFile, citations }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(stripCitationTokens(children)), [children]);
   const safeCitations = useMemo(() => {
     const seen = new Set<string>();
@@ -82,12 +82,10 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     img({ src, alt, ...props }) {
       delete props.node;
       const filePath = typeof src === "string" ? resolveLocalFileHref(src, cwd) : null;
-      const imageSrc = filePath
-        ? apiUrl(`/files/${encodeFilePathForApi(filePath)}?type=read`)
-        : src;
-      // Dynamic local paths are served directly by the file API.
+      if (filePath) return <ResourceImage filePath={filePath} sessionId={sessionId} alt={alt ?? ""} loading="lazy" {...props} />;
+      // 外部图片不携带 Service 凭据。
       // eslint-disable-next-line @next/next/no-img-element
-      return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
+      return <img src={src} alt={alt ?? ""} loading="lazy" {...props} />;
     },
     table({ children }) {
       return (
@@ -96,7 +94,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, sessionId, isStreaming, onOpenFile]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>

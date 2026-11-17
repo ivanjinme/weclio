@@ -69,15 +69,15 @@ Weclio
 | **P5** | 生命周期与更新门禁（原 B3） | 忙任务不被静默终止；更新失败可恢复 |
 | **P6** | 三产物构建 + 原子切换 + 发行（原 B4/B5） | 安装包无 Next Server；真实 A→B 升级不丢数据 |
 
-**P1 状态：进行中，原生媒体/下载认证待决策，不进入 P2。**
+**P1 状态：本机隔离回归通过，等待用户验收，不进入 P2。**
 
 - 浏览器已验证侧栏、历史、模型设置；隔离本机模型 fixture 已验证新建、流式聊天、Service 重启后的历史恢复/续聊。
 - 测试代理强制断开真实 SSE 后，浏览器自动恢复并携带 `Last-Event-ID`；XHR 上传在隔离工作区真实落盘。
 - 修复 Next/Service 的 workspace、pins、titles、models/auth 等路径映射；补齐创建/ensure 与冷启动恢复。
 - 默认工作区与既有 Next 行为对齐；开发脚本端口冲突立即失败，只清理自有进程树，使用独立 Next 输出目录。
 - 鉴权采用受 origin/path 限制的内存 Bearer。**撤回此前“loopback HTTP 必然无法使用 Cookie”的错误判断。**
-- **阻塞：** 原生 `img/audio/iframe` 和下载链接不能附 Bearer。fetch Blob 会改变内存/Range/大文件行为，不能无审批悄悄替换；资源票据或 Cookie/同源通道同样需要明确决策。
-- 当前验证记录见 [P1 回归](p1-regression.md)；仍需真实 provider/OAuth/打包后 Desktop 验收。
+- **资源决策已批准并实施：** 共用授权逻辑；2MiB 以下小资源 Blob；PDF、音频、大资源、SVG 与下载走15分钟无状态 Ticket。浏览器已实测预览、播放、Markdown 图片、上传、编辑和原生下载；不使用 Cookie 或 Next 代理。
+- 当前验证记录见 [P1 回归](p1-regression.md)；需用户确认 P1，真实 provider/OAuth 未用真实凭据测试。P3 还须按选定 Service origin 配置静态 CSP 的 img/media/frame/connect 来源，不能把浏览器验收当作已打包 Desktop 验收。
 
 **纪律：** P1 通过前冻结进一步的服务抽取与宿主层打磨；不新增运行时开关或第二套 fallback。
 

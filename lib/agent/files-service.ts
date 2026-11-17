@@ -273,8 +273,8 @@ ${bodyHtml}
 </html>`;
 }
 
-/** DOCX 预览：只转换本地文件内容，禁止外部引用。 */
-export async function renderDocumentPreview(filePath: string, stat: fs.Stats): Promise<string> {
+/** 签发和兑换票据都先检查预览类型与大小，不触发转换。 */
+export function validateDocumentPreview(filePath: string, stat: fs.Stats): void {
   requireFile(stat);
   if (getFileExt(filePath) !== "docx") {
     throw new AgentProtocolError("invalid_argument", "Preview not available for this file type");
@@ -282,6 +282,11 @@ export async function renderDocumentPreview(filePath: string, stat: fs.Stats): P
   if (stat.size > DOCX_PREVIEW_MAX_BYTES) {
     throw new AgentProtocolError("payload_too_large", "DOCX too large for preview (>10MB)");
   }
+}
+
+/** DOCX 预览：只转换本地文件内容，禁止外部引用。 */
+export async function renderDocumentPreview(filePath: string, stat: fs.Stats): Promise<string> {
+  validateDocumentPreview(filePath, stat);
   const mammoth = await import("mammoth");
   const result = await mammoth.convertToHtml(
     { path: filePath },

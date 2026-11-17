@@ -1,6 +1,6 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A 线的主要抽取已实施，但不等于端到端验收完成。当前按 P1→P6 执行：P1 联调中，浏览器媒体/下载认证待决策；P2 尚未开始。A4 延期；B1 静态入口已有基础，尚未切换正式宿主。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A 线的主要抽取已实施，但不等于端到端验收完成。当前按 P1→P6 执行：P1 本机隔离回归通过、等待用户验收，资源授权/Blob/Ticket 已实施；P2 尚未开始。A4 延期；B1 静态入口已有基础，尚未切换正式宿主。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 

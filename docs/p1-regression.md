@@ -2,7 +2,7 @@
 
 ## 当前结论
 
-P1 尚未完成；API、会话与 SSE 已验证，原生媒体/下载认证待决策。P2（删除旧 Next Agent 后端）未开始。代码抽取、HTTP smoke、浏览器验收是三个不同门槛。
+P1 已到用户验收点：API、会话、SSE、资源通道的本机隔离回归通过；还不能代替用户验收。P2（删除旧 Next Agent 后端）未开始。代码抽取、HTTP smoke、浏览器验收是三个不同门槛。
 
 ## 已修复
 
@@ -25,26 +25,32 @@ P1 尚未完成；API、会话与 SSE 已验证，原生媒体/下载认证待�
 3. 浏览器新建、发送并收到流式回复；标题出现在 Tasks。重启测试 Service 后恢复同一历史并成功续聊，原会话没有变为空白。
 4. 测试代理强制断开真实 SSE：浏览器自动恢复，会话事件重连回传 `Last-Event-ID: 12`。单元测试另覆盖 CR/LF 分块、游标清空、终止性错误和关闭竞态。
 5. 通过浏览器的文件 input 走真实 XHR multipart 上传，隔离 workspace 中读回内容与 fixture 一致。
-6. 点击 SVG 预览明确复现原生资源鉴权阻塞（Failed to load image），未绕过授权、未把长期令牌放入 URL。
+6. 先复现 SVG 的原生资源鉴权失败，再验证修复：PNG（含聊天、编辑器、只读 Markdown）走 Blob 正常解码；SVG 走 Ticket 正常解码，保留服务端安全头。
+7. 音频通过 Ticket 取得元数据并实际播放；PDF 原生查看器显示 fixture；小 DOCX 走 sandbox Blob 预览、大 DOCX 走 Ticket 预览；3MiB 图片走 Ticket，未整份预取为 Blob。
+8. 文件编辑写入隔离工作区成功；新的 XHR 上传文件逐字节匹配。Chrome 原生附件下载完成（16 bytes），落盘文件与源文件一致。agent-browser 的 download 命令也取消纯 Blob 探针下载，因此改用 CDP 配置 Chrome 下载行为后触发同一个 UI 按钮，不修改产品下载逻辑。
 
-本机产物（不进版本库）：`build/regression/chat.png`、`build/regression/upload-and-media-blocker.png`、`build/regression/isolated/stream-connections.json`、测试日志。
+本机产物（不进版本库）：`build/regression/resources-chat.png`、`resources-pdf.png`、`resources-docx.png`、`resources-docx-native.png`、`downloads/regression.txt`、`isolated/stream-connections.json`（均位于 `build/regression/`）、测试日志。
 
 ## 自动验证
 
-- 全量：908 tests / 898 passed / 10 skipped / 0 failed（test-concurrency=4）。
-- ESLint 干净；源码 TypeScript 206 roots，生成的 `.next`/`build` 不作为源码门槛。完整 tsc 仍受旧 `.next/types/validator.ts` 引用已不存在 export route 影响。
-- 独立只读审查：无本轮新增缺陷发现。
+- 全量：949 tests / 939 passed / 10 skipped / 0 failed（test-concurrency=4）。
+- ESLint 干净；源码 TypeScript 211 roots，生成的 `.next`/`build` 不作为源码门槛。完整 tsc 仍受旧 `.next/types/validator.ts` 引用已不存在 export route 影响。
+- 资源测试覆盖签名篡改/过期/实例隔离、严格 scope/query、Bearer 签发、根与会话引用撤回、目录链接替换、Range/HEAD、Bash 专用权限、Blob 上限与取消/释放竞态。Windows 普通 symlink 子场景缺权限时仅诊断；junction 替换独立测试实际执行通过。
+- 上轮会话/SSE 修改曾独立只读审查无发现；本轮资源代码已自查，但独立审查未完成，不能沿用上轮结论。
 
-## 待用户决策
+## 已批准并实施的资源决策
 
-原生 `img/audio/iframe`、浏览器下载不会使用 apiFetch 的 Authorization。需要选择：
+保留 Bearer；共用现有资源授权检查。小资源采用有字节上限和显式释放的 Blob；需要原生 URL 的资源采用无状态 Ticket。无 Cookie、新依赖、票据数据库、永久 Next 代理或多用户平台。
 
-- fetch Blob：保留当前认证方式，但整文件先取到浏览器，不能当作原生大文件/Range 流的等价替换。
-- Service 签发资源级短时票据：保留流式/Range；需要批准 URL 中携带受限能力，以及 TTL/日志/引用策略。
-- 调整浏览器认证或同源通道：重新评估 Cookie/宿主媒体通道；属于架构变更，不能偷偷加入永久 Next 代理。
+- SDK：`lib/resource-client.ts`、`hooks/useResourceUrl.ts`；2MiB Blob 上限，超限退回 Ticket。SVG 使用 Ticket，避免 Blob 丢失原响应安全头。
+- Ticket：Bearer POST 签发，签名绑定资源/用途/会话/source/实例/15分钟有效期；GET/HEAD 兑换重新授权，根/会话引用缓存沿用既有策略，不承诺即时撤销。
+- 文件树、文件预览、Markdown、编辑器、Bash 完整输出的下载/图片均接入共享通道；外部图片不附 Service 凭据。
+- Bash 输出保留特定 spill 路径、会话真实引用、no-follow 文件句柄检查；不是普通路径授权的宽松替代。
+- 下载每次点击重新签发。预览/播放的后续请求若在到期或 Service 重启后失败，需要刷新资源；文档工具栏和媒体错误态提供刷新。不用定时换 URL 强制打断阅读/播放。
+- 票据允许有效期内多次 Range，不是一次性票据；绑定实时文件路径而非不可变内容快照。响应 no-store/no-referrer，URL 仍是敏感能力，未来反向代理必须屏蔽该查询参数的访问日志。
 
-此前“loopback HTTP 必然不能使用 Secure Cookie”的表述未经充分验证，已撤回；不能用它排除所有 Cookie 方案。
+此前“loopback HTTP 必然不能使用 Secure Cookie”的表述已撤回；当前不继续改 Cookie 架构。
 
 ## 尚未验收
 
-原生媒体/下载；真实 provider/OAuth；完整富文本与文件编辑交互；打包后的 Desktop；安装/升级。P1 通过后才推进 P2。
+用户对 P1 的最终验收、真实 provider/OAuth（本轮只用本机模型 fixture，不触碰真实凭据）。P1 通过后才推进 P2。Desktop 静态宿主 CSP/接线留在 P3，打包、安装/升级留在后续阶段；不把当前浏览器结果当作 Desktop 已验收。

@@ -22,6 +22,7 @@ import type {
   ThinkingContent,
 } from "@/lib/types";
 import { apiUrl } from "@/lib/api-base";
+import { ResourceDownloadButton } from "./ResourceDownloadButton";
 import { apiFetch } from "@/lib/api-fetch";
 
 const MAX_THINKING_CACHE_ENTRIES = 100;
@@ -147,7 +148,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   // 系统提示词和工具配置保留在会话记录中，不显示为聊天气泡。
   if (message.role === "system") return null;
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onEditFromHere={onEditFromHere} />;
+    return <UserMessageView message={message as UserMessage} sessionId={sessionId} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onEditFromHere={onEditFromHere} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenChanges={onOpenChanges} changeToolCallIds={changeToolCallIds} entryId={entryId} onFork={onFork} forking={forking} showTimestamp={showTimestamp} showActions={showActions} prevTimestamp={prevTimestamp} sessionId={sessionId} runningToolLabel={runningToolLabel} runningToolCallIds={runningToolCallIds} />;
@@ -160,7 +161,7 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     if ((message as CustomMessage).customType === "compaction") {
       return <CompactionMessageView message={message as CustomMessage} />;
     }
-    return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <CustomMessageView message={message as CustomMessage} sessionId={sessionId} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (message.role === "bashExecution") {
     return <BashExecutionView message={message as BashExecutionMessage} sessionId={sessionId} />;
@@ -189,8 +190,9 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.runningToolCallIds === next.runningToolCallIds;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onEditFromHere }: {
+function UserMessageView({ message, sessionId, cwd, onOpenFile, entryId, onEditFromHere }: {
   message: UserMessage;
+  sessionId?: string;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   entryId?: string;
@@ -338,7 +340,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onEditFromHere }: 
               </div>
             </>
           ) : content ? (
-            <SafeMarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>
+            <SafeMarkdownBody className="markdown-user-message" sessionId={sessionId} cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>
           ) : null}
         </div>
 
@@ -721,7 +723,7 @@ function AssistantMessageView({
 
 function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, onOpenChanges, changeToolCallIds, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; onOpenChanges?: Props["onOpenChanges"]; changeToolCallIds?: Props["changeToolCallIds"]; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
-    return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <TextBlock block={block as TextContent} sessionId={sessionId} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
     return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
@@ -735,10 +737,10 @@ function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCal
   return null;
 }
 
-function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void }) {
+function TextBlock({ block, sessionId, isStreaming, cwd, onOpenFile }: { block: TextContent; sessionId?: string; isStreaming?: boolean; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   const className = getTextPhase(block) === "commentary" ? "markdown-commentary" : undefined;
   return (
-    <SafeMarkdownBody className={className} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} citations={block.citations}>
+    <SafeMarkdownBody className={className} sessionId={sessionId} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} citations={block.citations}>
       {block.text}
     </SafeMarkdownBody>
   );
@@ -1260,7 +1262,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
   );
 }
 
-function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
+function CustomMessageView({ message, sessionId, cwd, onOpenFile }: { message: CustomMessage; sessionId?: string; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   const { t } = useI18n();
   const isHiddenDisplay = message.display === false;
   const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
@@ -1329,7 +1331,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                 })}
               </div>
             )}
-             {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
+             {text ? <MarkdownBody className="markdown-custom-message" sessionId={sessionId} cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
           </div>
         ) : (
           <button
@@ -1544,7 +1546,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
   return (
     <div style={{ margin: "6px 0" }}>
       <ToolCallBlock block={block} result={result} />
-      {message.truncated && fullOutputUrl && (
+      {message.truncated && fullOutputUrl && message.fullOutputPath && (
         <div style={{ padding: "4px 10px", fontSize: 11, marginTop: -1 }}>
           {showFullButton && (
             <button
@@ -1555,12 +1557,11 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
               {loadingFull ? "loading…" : "view full output"}
             </button>
           )}
-          <a
-            href={`${fullOutputUrl}&download=1`}
-            style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
+          <ResourceDownloadButton filePath={message.fullOutputPath} sessionId={sessionId} source="bash-output"
+            style={{ marginLeft: showFullButton ? 10 : 0, background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
           >
             download full output
-          </a>
+          </ResourceDownloadButton>
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>
       )}
