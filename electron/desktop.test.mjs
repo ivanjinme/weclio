@@ -1,20 +1,6 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
-import http from "node:http";
 import { test } from "node:test";
 import { isAppUrl, isExternalUrl, isPermissionAllowed } from "./navigation.mjs";
-import { assertPortAvailable, waitForServer } from "./server.mjs";
-
-async function serve(t, handler) {
-  const server = http.createServer(handler);
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(() => new Promise((resolve) => {
-    server.close(resolve);
-    server.closeAllConnections();
-  }));
-  return { port: server.address().port, url: `http://127.0.0.1:${server.address().port}` };
-}
 
 test("only static application entry paths may navigate inside the desktop", () => {
   for (const url of ["weclio://app", "weclio://app/", "weclio://app/?session=123#message", "weclio://app/index.html?session=123#message"]) {
@@ -47,75 +33,4 @@ test("clipboard reads and other permissions remain denied for the application", 
   for (const permission of ["clipboard-read", "deprecated-sync-clipboard-read", "media", "geolocation", "notifications", "openExternal", "unknown"]) {
     assert.equal(isPermissionAllowed(permission, "weclio://app/index.html"), false, permission);
   }
-});
-
-test("an occupied port is rejected without stopping or changing its server", async (t) => {
-  const { port, url } = await serve(t, (_request, response) => response.end("existing"));
-  await assert.rejects(assertPortAvailable(port), /已被占用/);
-  assert.equal(await (await fetch(url)).text(), "existing");
-});
-
-test("port probe releases its listener", async () => {
-  await assertPortAvailable(0);
-});
-
-test("readiness requires both the owned process readiness and an HTTP 200", async (t) => {
-  let requests = 0;
-  let ready = false;
-  const { url } = await serve(t, (_request, response) => {
-    requests++;
-    response.writeHead(requests === 1 ? 503 : 200).end();
-  });
-  const controller = new AbortController();
-  const waiting = waitForServer(url, { signal: controller.signal, isReady: () => ready, timeout: 3000 });
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(requests, 0, "must not probe another process before the owned server is ready");
-  ready = true;
-  await waiting;
-  assert.equal(requests, 2);
-});
-
-test("startup has a bounded timeout", async () => {
-  await assert.rejects(waitForServer("http://127.0.0.1:1", {
-    signal: new AbortController().signal,
-    isReady: () => true,
-    timeout: 50,
-  }), /未就绪/);
-});
-
-test("a streaming response cannot bypass the total startup deadline", async (t) => {
-  const { url } = await serve(t, (_request, response) => {
-    response.writeHead(200);
-    response.write("partial HTML");
-    const timer = setInterval(() => response.write(" "), 10);
-    response.once("close", () => clearInterval(timer));
-  });
-  const controller = new AbortController();
-  const safety = setTimeout(() => controller.abort(), 2000);
-  const start = Date.now();
-  try {
-    await assert.rejects(waitForServer(url, { signal: controller.signal, isReady: () => true, timeout: 100 }), /未就绪/);
-    assert.ok(Date.now() - start < 1500);
-  } finally {
-    clearTimeout(safety);
-  }
-});
-
-test("shutdown aborts startup polling", async () => {
-  const controller = new AbortController();
-  const waiting = waitForServer("http://127.0.0.1:1", {
-    signal: controller.signal,
-    isReady: () => false,
-  });
-  controller.abort();
-  await assert.rejects(waiting, { name: "AbortError" });
-});
-
-test("shutdown aborts an in-flight HTTP readiness request", async (t) => {
-  const controller = new AbortController();
-  const { url } = await serve(t, () => controller.abort());
-  await assert.rejects(waitForServer(url, {
-    signal: controller.signal,
-    isReady: () => true,
-  }), { name: "AbortError" });
 });

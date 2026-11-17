@@ -37,7 +37,9 @@ export class BrowserWindow extends EventEmitter {
     super(); this.options = options; this.shown = 0; this.reloads = 0; this.urls = []; this.overlayUpdates = []; this.fullscreen = false;
     this.webContents = Object.assign(new EventEmitter(), {
       session: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} },
-      scripts: [],
+      scripts: [], downloads: [],
+      downloadURL(url) { this.downloads.push(url); },
+      mainFrame: { url: 'weclio://app/index.html' },
       async executeJavaScript(script) { this.scripts.push(script); },
       setWindowOpenHandler(handler) { this.openWindow = handler; }
     });
@@ -52,14 +54,18 @@ export class BrowserWindow extends EventEmitter {
 }
 `;
 
-function runMain(check, { platform = process.platform, setup = "" } = {}) {
+function runMain(check, { platform = process.platform, setup = "", packaged = false, startupFailure = false } = {}) {
   const mockUrl = `data:text/javascript,${encodeURIComponent(mock)}`;
+  const serviceMock = `data:text/javascript,${encodeURIComponent(`export const starts=[]; export let stops=0; export async function startLocalAgentService(options){ starts.push(options); if(${startupFailure}) throw new Error('fixture local service failed'); return {baseUrl:'http://127.0.0.1:18890',token:'owned-token',uiDir:'fixture/ui',stop:async()=>{stops++}}; }`)}`;
+  const toolsMock = `data:text/javascript,${encodeURIComponent("export async function resolveDesktopTools(){return 'fixture-tools'}")}`;
   const script = `
     import assert from 'node:assert/strict';
     import { registerHooks } from 'node:module';
     import { setImmediate } from 'node:timers/promises';
     registerHooks({ resolve(specifier, context, next) {
       if (specifier === 'electron') return { url: ${JSON.stringify(mockUrl)}, shortCircuit: true };
+      if (${packaged} && specifier === './local-service.mjs') return {url:${JSON.stringify(serviceMock)},shortCircuit:true};
+      if (${packaged} && specifier === './toolsets.mjs') return {url:${JSON.stringify(toolsMock)},shortCircuit:true};
       return next(specifier, context);
     }});
     const { app, BrowserWindow, dialog, ipcMain, protocol, shell } = await import('electron');
@@ -69,7 +75,9 @@ function runMain(check, { platform = process.platform, setup = "" } = {}) {
     const profile = mkdtempSync(join(tmpdir(), 'weclio-main-test-'));
     process.on('exit', () => rmSync(profile, { recursive: true, force: true }));
     app.getPath = (name) => name === 'userData' ? profile : 'test-logs';
-    app.isPackaged = false;
+    app.isPackaged = ${packaged};
+    process.resourcesPath = 'fixture-resources';
+    const local = ${packaged} ? await import(${JSON.stringify(serviceMock)}) : null;
     Object.defineProperty(process, 'platform', { value: ${JSON.stringify(platform)} });
     // 默认提供一份有效的宿主连接配置；各用例可覆盖或用 setup 删除。
     const tokenFile = join(profile, 'service-token');
@@ -159,12 +167,26 @@ test("the renderer receives the selected Service through a trusted IPC bridge on
   runMain(`
     const handler = ipcMain.handlers.get('agent-service:config');
     assert.ok(handler, 'the static UI needs a Service connection');
-    assert.deepEqual(handler({ senderFrame: { url: 'weclio://app/index.html' } }),
+    assert.deepEqual(handler({ sender: window.webContents, senderFrame: window.webContents.mainFrame }),
       { baseUrl: 'http://127.0.0.1:18890', token: 'desktop-fixture-token' });
+    assert.throws(() => handler({ sender: {}, senderFrame: window.webContents.mainFrame }), /Untrusted/);
+    assert.throws(() => handler({ sender: window.webContents, senderFrame: { url: 'weclio://app/index.html' } }), /Untrusted/);
     for (const sender of [{ url: 'https://example.com/' }, { url: 'http://127.0.0.1:8888/' }, { url: 'weclio://app/assets/app.js' }, {}, null]) {
       assert.throws(() => handler({ senderFrame: sender }), /Untrusted/);
     }
     assert.equal(JSON.stringify(window.urls).includes('desktop-fixture-token'), false, 'the token must not appear in any URL');
+  `);
+});
+
+test("Desktop downloads accept only selected-Service tickets from the owning main frame", () => {
+  runMain(`
+    const handler=ipcMain.handlers.get('resource:download');
+    const event={sender:window.webContents,senderFrame:window.webContents.mainFrame};
+    handler(event,'http://127.0.0.1:18890/v1/resources/content?ticket=opaque-ticket');
+    assert.deepEqual(window.webContents.downloads,['http://127.0.0.1:18890/v1/resources/content?ticket=opaque-ticket']);
+    for(const url of ['https://evil.example/v1/resources/content?ticket=x','http://127.0.0.1:18891/v1/resources/content?ticket=x','http://127.0.0.1:18890/v1/files/a','http://127.0.0.1:18890/v1/resources/content?ticket=x&write=1','http://127.0.0.1:18890/v1/resources/content?ticket=x#fragment','file:///C:/secret'])assert.throws(()=>handler(event,url),/Invalid desktop resource/);
+    assert.throws(()=>handler({...event,senderFrame:{url:'weclio://app/index.html'}},'http://127.0.0.1:18890/v1/resources/content?ticket=x'),/Untrusted/);
+    assert.equal(window.urls.length,1,'download must not navigate or replace the application');
   `);
 });
 
@@ -214,6 +236,33 @@ test("an empty Service token file fails closed", () => {
     assert.deepEqual(window.urls, []);
     assert.match(dialog.errors[0][1], /令牌文件为空/);
   `, { setup: `writeFileSync(process.env.WECLIO_DESKTOP_AGENT_TOKEN_FILE, '  \\n');` });
+});
+
+test("packaged Desktop starts its owned bundled Service before exposing static UI, not a Next server", () => {
+  runMain(`
+    assert.equal(local.starts.length,1);
+    assert.equal(local.starts[0].resourcesPath,'fixture-resources');
+    assert.equal(local.starts[0].stateDir,join(profile,'agent-service'));
+    assert.equal(local.starts[0].toolsRoot,'fixture-tools');
+    assert.equal(local.starts[0].appVersion,'0.1.12');
+    assert.match(window.urls[0],/^data:text\\/html/);
+    assert.equal(window.urls[1],'weclio://app/index.html');
+    const handler=ipcMain.handlers.get('agent-service:config');
+    assert.equal(handler({sender:window.webContents,senderFrame:window.webContents.mainFrame}).token,'owned-token');
+    app.emit('will-quit'); await setImmediate();
+    assert.equal(local.stops,1);
+    assert.equal(local.starts[0].signal.aborted,true);
+    assert.equal(ipcMain.handlers.has('agent-service:config'),false);
+  `, {packaged:true});
+});
+
+test("packaged startup failure stays closed without exposing credentials or falling back", () => {
+  runMain(`
+    assert.deepEqual(app.exits,[1]);
+    assert.equal(window.urls.length,1);
+    assert.equal(ipcMain.handlers.has('agent-service:config'),false);
+    assert.match(dialog.errors[0][1],/fixture local service failed/);
+  `, {packaged:true,startupFailure:true});
 });
 
 test("a clean renderer exit does not terminate the desktop", () => {

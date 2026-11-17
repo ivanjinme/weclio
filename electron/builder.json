@@ -14,12 +14,11 @@
     "electron/updates.mjs",
     "electron/update-signature.mjs",
     "electron/update-install.mjs",
-    "electron/production.mjs",
+    "electron/local-service.mjs",
+    "electron/node-runtime.mjs",
+    "lib/agent/protocol/version-value.mjs",
     "electron/runtime.mjs",
     "electron/toolsets.mjs",
-    "electron/server.mjs",
-    "bin/node-version.js",
-    "bin/ui-build.js",
     "LICENSE",
     "!node_modules/**/*"
   ],
@@ -36,27 +35,26 @@
       ]
     },
     {
-      "from": "build/desktop/server",
-      "to": "server",
-      "filter": [
-        "package.json",
-        "next.config.js",
-        "desktop-packages.mjs",
-        "LICENSE",
-        "public/**/*",
-        ".next/**/*",
-        "!.next/cache/**/*",
-        "!.next/**/*.nft.json",
-        "!.next/**/*.js.map",
-        "!.next/**/*.mjs.map",
-        "!.next/**/*.cjs.map",
-        "!.next/trace",
-        "!.next/trace-build"
-      ]
+      "from": "build/desktop/ui",
+      "to": "ui"
     },
     {
-      "from": "build/desktop/server/node_modules",
-      "to": "server/node_modules"
+      "from": "build/desktop/service",
+      "to": "service",
+      "filter": ["entry.mjs", "package.json", "service-manifest.json", "lib/**/*", "electron/packages.mjs", "LICENSE"]
+    },
+    {
+      "from": "build/desktop/service/node_modules",
+      "to": "service/node_modules"
+    },
+    {
+      "from": "build/desktop/host",
+      "to": "host",
+      "filter": ["package.json", "host-manifest.json", "LICENSE"]
+    },
+    {
+      "from": "build/desktop/host/node_modules",
+      "to": "host/node_modules"
     },
     {
       "from": "build/desktop/toolset.json",
@@ -66,8 +64,14 @@
       "from": "resources/runtime/win-x64",
       "to": "runtime/win-x64",
       "filter": [
-        "tools/**/*"
+        "tools/**/*",
+        "node/**/*",
+        "!node/node_modules/**/*"
       ]
+    },
+    {
+      "from": "resources/runtime/win-x64/node/node_modules",
+      "to": "runtime/win-x64/node/node_modules"
     }
   ],
   "electronDist": "node_modules/electron/dist",

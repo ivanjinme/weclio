@@ -8,11 +8,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import nodeVersion from "../bin/node-version.js";
 import { prepareSignedUpdate, readReleaseSigning } from "./update-release.mjs";
 import { createToolsetManifest } from "./toolsets.mjs";
+import { prepareNodeRuntime } from "./node-runtime.mjs";
 export { validateInstaller } from "./update-release.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
-const inputs = ["app", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "next.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
+const inputs = ["app", "desktop", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "vite.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/service-build.mjs", "electron/node-runtime.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
+
+export function fingerprintDesktopResources(base) {
+  return fingerprint(base, ["ui", "service", "host"]);
+}
 
 export async function fingerprint(base, paths = inputs) {
   const hash = createHash("sha256");
@@ -30,7 +35,7 @@ export async function fingerprint(base, paths = inputs) {
 }
 
 export function fingerprintPackaging(base) {
-  return fingerprint(base, ["electron", "resources/desktop-update.json", "resources/runtime/win-x64/tools", "bin/node-version.js"]);
+  return fingerprint(base, ["electron", "resources/desktop-update.json", "resources/runtime/win-x64/tools", "resources/runtime/win-x64/node"]);
 }
 
 export async function validateVersion(base) {
@@ -66,9 +71,9 @@ export async function retainDesktopRelease({ output, dist, version, signing }) {
   return { installerPath: join(dist, name), blockmapPath: join(dist, `${name}.blockmap`), manifestPath: join(dist, prepared.manifestName), sha256: prepared.sha256 };
 }
 
-function run(command, args) {
+function run(command, args, env = process.env) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: root, stdio: "inherit", windowsHide: true });
+    const child = spawn(command, args, { cwd: root, env, stdio: "inherit", windowsHide: true });
     child.once("error", reject);
     child.once("exit", (code, signal) => code === 0 ? resolve() : reject(new Error(`命令失败 (${code ?? signal}): ${args.join(" ")}`)));
   });
@@ -80,27 +85,32 @@ async function main() {
   if (process.platform !== "win32" || process.arch !== "x64" || !nodeVersion.isNodeVersionSupported(process.versions.node)) throw new Error("需要 Windows x64 和 Node.js 22.19+。");
   const version = await validateVersion(root);
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version) || version.split(".").some((part) => !Number.isSafeInteger(Number(part)))) throw new Error("桌面更新仅接受正式版本号。");
+  await prepareNodeRuntime({ destination: join(root, "resources/runtime/win-x64/node"), cacheDir: join(root, "build/runtime-downloads") });
   const packagingFingerprint = await fingerprintPackaging(root);
   const signing = await readReleaseSigning({ root });
-  const server = join(root, "build/desktop/server");
-  const snapshot = join(root, "build/desktop/server-inputs.json");
+  const resources = join(root, "build/desktop");
+  const snapshot = join(resources, "resources-inputs.json");
   const dist = join(root, "build/desktop/dist");
   const initial = await fingerprint(root);
   const npm = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
   await run(process.execPath, [npm, "ls", "--omit=dev", "--all", "--parseable"]);
   const tests = (await readdir(join(root, "electron"))).filter((name) => name.endsWith(".test.mjs")).sort().map((name) => join(root, "electron", name));
-  await run(process.execPath, ["--test", ...tests]);
+  await run(process.execPath, ["--test", "--test-concurrency=4", ...tests]);
   if (args.includes("--quick")) {
     if (!existsSync(snapshot)) throw new Error("没有完整发布构建记录，请先执行 npm run release:desktop。");
     const saved = JSON.parse(await readFile(snapshot, "utf8"));
-    if (saved.fingerprint !== initial || saved.version !== version || saved.server !== await fingerprint(server, [".next", "node_modules", "package.json", "next.config.js", "desktop-packages.mjs", "public", "LICENSE"])) throw new Error("生产构建输入或产物已变化，请执行完整发布。");
+    if (saved.fingerprint !== initial || saved.version !== version || saved.resources !== await fingerprintDesktopResources(resources)) throw new Error("生产构建输入或产物已变化，请执行完整发布。");
   } else {
     await rm(snapshot, { force: true });
     await run(process.execPath, [join(root, "electron/build.mjs")]);
     if (await fingerprint(root) !== initial) throw new Error("构建过程中源文件变化，请重新执行。");
-    const serverHash = await fingerprint(server, [".next", "node_modules", "package.json", "next.config.js", "desktop-packages.mjs", "public", "LICENSE"]);
-    await writeFile(snapshot, JSON.stringify({ version, fingerprint: initial, server: serverHash }) + "\n");
+    const resourcesHash = await fingerprintDesktopResources(resources);
+    await writeFile(snapshot, JSON.stringify({ version, fingerprint: initial, resources: resourcesHash }) + "\n");
   }
+  // 发行不能把默认跳过的产物测试当成已验收：始终用真实候选闭包和 bundled Node 跑隔离工具循环。
+  await run(process.execPath, ["--test", "--test-concurrency=4", join(root, "electron/service-artifact.integration.test.mjs")], {
+    ...process.env, WECLIO_SERVICE_ARTIFACT: join(resources, "service"), WECLIO_NODE_RUNTIME: join(root, "resources/runtime/win-x64/node"),
+  });
   // --quick 可复用服务构建，但工具描述必须绑定本次实际打包的工具。
   if (args.includes("--quick")) {
     await writeFile(join(root, "build/desktop/toolset.json"), JSON.stringify(await createToolsetManifest(join(root, "resources/runtime/win-x64"))) + "\n");
@@ -112,7 +122,7 @@ async function main() {
     const builder = require.resolve("electron-builder/cli.js");
     const saved = JSON.parse(await readFile(snapshot, "utf8"));
     await run(process.execPath, [builder, "--config", "electron/builder.json", "--win", "--x64", "--publish", "never", "--config.directories.output", output]);
-    if (await fingerprint(root) !== initial || await fingerprintPackaging(root) !== packagingFingerprint || await fingerprint(root, ["build/desktop/toolset.json"]) !== generatedFingerprint || saved.server !== await fingerprint(server, [".next", "node_modules", "package.json", "next.config.js", "desktop-packages.mjs", "public", "LICENSE"])) throw new Error("打包过程中源文件或构建产物变化，请重新执行。");
+    if (await fingerprint(root) !== initial || await fingerprintPackaging(root) !== packagingFingerprint || await fingerprint(root, ["build/desktop/toolset.json"]) !== generatedFingerprint || saved.resources !== await fingerprintDesktopResources(resources)) throw new Error("打包过程中源文件或构建产物变化，请重新执行。");
     const result = await retainDesktopRelease({ output, dist, version, signing });
     console.log(`\n安装包: ${result.installerPath}\n差异文件: ${result.blockmapPath}\n签名清单: ${result.manifestPath}\nSHA256: ${result.sha256}\n本命令不会上传。`);
   } finally {

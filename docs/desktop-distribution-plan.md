@@ -1,6 +1,6 @@
 # Action Plan B — Electron Packaging & Distribution
 
-> **架构方向已确认，业务尚未实施。** 依赖 [Plan A](agent-service-refactoring-plan.md)。本轮仅按确认意见收缩计划，不改 Electron 脚本、生产依赖、签名配置或发布流程，不构建/安装/上传产物。
+> **当前发行主线：P1–P4 源码与本机候选产物验证完成，继续 P5 生命周期/更新门禁，再做 P6 真实安装升级与发行。** 依赖 [Plan A](agent-service-refactoring-plan.md)。目标是发新版 Desktop；VM、Web 与 Service 单独部署暂缓，不另开泛化技术债清理支线。
 
 ## 1. 目标产物与核心决策
 
@@ -24,7 +24,7 @@ Weclio
 - **本期只落实 Local 分发。** Remote VM/容器为未来架构方向，当前不部署真实环境、不建设 Remote 运维/升级体系；相关验证不阻塞本地主线。
 - **新发行面向 `weclio`。** 按已更名仓库和未来新包统一发布字段，正式发布前重新发布新包；不设计旧客户端/旧 feed 过渡。重用验签实现，不维持旧命名约束，也不因此重置用户 Session/配置。
 
-## 2. 当前分发审计与分类
+## 2. 原始分发审计与分类（实施前快照，非当前状态）
 
 | 分类 | 当前实现 / 证据 | 决策、收益与风险 |
 | --- | --- | --- |
@@ -44,7 +44,7 @@ Weclio
 
 ## 3. B1 — Desktop UI 静态化
 
-### PR B1 — 静态 React 入口与宿主适配（静态构建已实施，Electron 接入未做）
+### PR B1 — 静态 React 入口与宿主适配（下述为早期实施记录；正式接线见 P3/P4）
 
 - **已完成：**
   - 新增 `desktop/index.html` + `desktop/main.tsx`：静态入口直接挂载与 Web 共用的 `AppShell`，自带启动 splash 与主题/侧栏宽度恢复，无任何服务端渲染。
@@ -64,11 +64,12 @@ Weclio
 | --- | --- | --- |
 | **P1** | 客户端双路由表（`lib/agent/routes.ts`）+ dev 脚本起独立 Service + 浏览器实跑 | 同一 UI 连两种宿主行为一致；SSE 重连/文件/预览/下载/设置可用 |
 | **P2** | 退役 Web 进程内 Agent（Next 只留 UI） | Web 内 `import rpc-manager` = 0；`next start` 只提供 UI |
-| **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 || **P4** | 捆绑 Runtime（原 B2） | 干净 Windows 无 Node 可跑；VM 用系统 Node 跑同一产物 |
+| **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 |
+| **P4** | 捆绑 Runtime 与生产闭包（原 B2） | 仓库外候选不依赖系统 Node/根依赖；真实安装验证在 P6 |
 | **P5** | 生命周期与更新门禁（原 B3） | 忙任务不被静默终止；更新失败可恢复 |
-| **P6** | 三产物构建 + 原子切换 + 发行（原 B4/B5） | 安装包无 Next Server；真实 A→B 升级不丢数据 |
+| **P6** | Desktop 安装候选验证、升级与发行（原 B4/B5） | 安装包无 Next Server；真实安装/升级不丢数据；不要求本轮部署 Web/VM |
 
-**当前：P1、P2 已验收完成；P3 静态 Desktop（协议、CSP、连接下发、开发启动器）已实现并实测，P4 未开始。**
+**当前：P1 用户已明确验收；P2/P3/P4 已完成代码及相应构建/隔离回归。P5 未实施，尚不能发行。**
 
 - 浏览器已验证侧栏、历史、模型设置；隔离本机模型 fixture 已验证新建、流式聊天、Service 重启后的历史恢复/续聊。
 - 测试代理强制断开真实 SSE 后，浏览器自动恢复并携带 `Last-Event-ID`；XHR 上传在隔离工作区真实落盘。
@@ -77,8 +78,8 @@ Weclio
 - 鉴权采用受 origin/path 限制的内存 Bearer。**撤回此前“loopback HTTP 必然无法使用 Cookie”的错误判断。**
 - **资源决策已批准并实施：** 共用授权逻辑；2MiB 以下小资源 Blob；PDF、音频、大资源、SVG 与下载走15分钟无状态 Ticket。浏览器已实测预览、播放、Markdown 图片、上传、编辑和原生下载；不使用 Cookie 或 Next 代理。
 - P1 验证记录见 [P1 回归](p1-regression.md)；P2 记录见 [Next 退役](p2-next-retirement.md)。已删除39个 Next 业务 handler、旧 instrumentation/proxy/IPC 门禁及 HMR runtime；客户端只连显式选择的 Service，无代理/fallback。
-- 开发 Desktop/Web 共用 Service+Next UI 启动器；生产 UI 入口拒绝包含旧后端的编译产物。Next 不再能代表 Agent 返回更新 ready；真实 Service 门禁在 P5 接线，缺失时安装器拒绝安装，不能打包发布当前中间态。
-- 真实 provider/OAuth 未用真实凭据测试。P3 还须按选定 Service origin 配置静态 CSP 的 img/media/frame/connect 来源；未执行新的生产构建，也不把浏览器验收当作已打包 Desktop 验收。
+- 开发 Web 使用 Service+Next UI；Desktop 使用 Service+静态 UI。旧生产 Next 启动器已删除；安装版由 `local-service.mjs` 启动 bundled Node/Service，updater 使用自己的 Host 闭包。P5 真实门禁缺失时仍拒绝安装更新，不能发布当前中间态。
+- 真实 provider/OAuth 未用真实凭据测试。P4 已真实组装原生 `app.isPackaged=true` 候选并运行，未伪造 packaged/resourcesPath；仍未执行 NSIS 安装、ASAR 启动或真实 A→B 升级。
 
 **P3 状态：静态托管已接线并实测通过；打包链路（内置 Service/资产布局/发行）仍属 P4–P6。**
 
@@ -89,9 +90,18 @@ Weclio
 - 开发启动器：Desktop 分支只预检 Service 端口，静态资产缺失即失败，Service READY 后直接拉起 Electron。
 - 实测：真实独立构建的 Next UI 仅渲染页面且 `/api/*` 全 404；真实 Electron + 隔离 Service 完成新建会话、
   SSE 回复与资源读取。详见 [P3 记录](p3-static-desktop.md)。
-- 仍未完成：安装包内置 Service、静态资产布局与商业级更新门禁；`main.mjs` 已不再调用 `production.mjs`。
+- 后续 P4 已完成内置 Service/Node/npm/静态资产/Host 闭包接线，删除 `production.mjs`。仍缺 P5 更新交接、P6 安装升级实证。
 
 **纪律：** 不新增运行时开关或 fallback；未完成打包前不得发布桌面安装包。
+
+## P4 实施记录
+
+- Node 24.16.0 / npm 11.13.0 官方完整 ZIP，固定来源及 SHA256，校验完整 Runtime 文件树；不安装系统软件。
+- Service 自有源码编译为 ESM，运行时闭包177包；Host/updater 独立16包；保留 SDK 动态 TS loader、额外用户依赖、WASM/worker、导出模板、主题与许可证。Root dev-marked mammoth 仍按实际运行时需要纳入。
+- `build.mjs` / Builder / release fingerprint 改为 `ui + service + host + Node/npm + rg/fd`，不再依赖旧 Next 输出；发行路径强制运行仓库外产物工具循环测试。
+- 仓库外真实工具循环、TS 扩展 extra dependency/reload、SDK HTML exporter 与 WASM resize worker通过；真实原生候选聊天、SVG/DOCX/PDF/Range、音频元数据、原生下载字节比对通过。
+- 保持严格主窗口导航；下载仅经窄 IPC 交给已选 Service 的只读 Ticket URL，不开放任意 HTTP/FS。只允许受信主窗口主 frame。
+- 普通退出的空闲清理已验证；完整 busy/update/draft/失败恢复留 P5。详见 [P4 记录](p4-production-desktop.md)。
 
 ## 4. B2 — Local Agent Service 打包
 

@@ -14,6 +14,7 @@ export interface DesktopUpdateBridge {
   restartUpdate(locale: Locale): Promise<void>;
   checkForUpdates?(): Promise<void>;
   getAgentService?(): Promise<SelectedAgentService>;
+  downloadResource?(ticketUrl: string): Promise<void>;
 }
 
 /** 宿主下发的 Agent Service 连接信息；凭据不进入静态资产或 URL。 */

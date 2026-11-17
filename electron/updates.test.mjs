@@ -353,12 +353,13 @@ test("sandbox preload exposes only named methods and listener unsubscribe", asyn
   let api; const listeners = new Map(); const invoked = [];
   const ipcRenderer = { invoke: (channel, ...args) => { invoked.push([channel, ...args]); return Promise.resolve({ status: "idle" }); }, on: (name, fn) => listeners.set(name, fn), removeListener: (name, fn) => { assert.equal(listeners.get(name), fn); listeners.delete(name); } };
   runInNewContext(await readFile(new URL("./preload.cjs", import.meta.url), "utf8"), { require: (name) => { assert.equal(name, "electron"); return { ipcRenderer, contextBridge: { exposeInMainWorld(name, value) { assert.equal(name, "weclioDesktop"); api = value; } } }; } });
-  assert.deepEqual(Object.keys(api), ["getAgentService", "getUpdateState", "onUpdateState", "restartUpdate", "checkForUpdates"]);
+  assert.deepEqual(Object.keys(api), ["getAgentService", "downloadResource", "getUpdateState", "onUpdateState", "restartUpdate", "checkForUpdates"]);
   assert.equal(typeof api.checkForUpdates, "function");
   // 静态 UI 的连接信息也走同一个受限桥接，不接受任意渲染进程。
   await api.getAgentService();
+  await api.downloadResource("ticket-url");
   await api.getUpdateState(); await api.restartUpdate("zh-CN"); await api.checkForUpdates();
-  assert.deepEqual(invoked, [["agent-service:config"], [UPDATE_CHANNELS.get], [UPDATE_CHANNELS.restart, "zh-CN"], [UPDATE_CHANNELS.check]]);
+  assert.deepEqual(invoked, [["agent-service:config"], ["resource:download", "ticket-url"], [UPDATE_CHANNELS.get], [UPDATE_CHANNELS.restart, "zh-CN"], [UPDATE_CHANNELS.check]]);
   let received; const unsubscribe = api.onUpdateState((state) => { received = state; });
   listeners.get(UPDATE_CHANNELS.state)({ secret: true }, { status: "downloaded" }); assert.deepEqual(received, { status: "downloaded" }); unsubscribe(); assert.equal(listeners.size, 0);
 });

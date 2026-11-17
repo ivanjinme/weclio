@@ -20,8 +20,9 @@ Service 就绪后才启动 GUI；Service 退出、Electron 非零退出或 logo 
 不接管已有端口，也不按进程名杀系统 Node。
 
 未预先构建静态资产时，启动器直接失败并提示运行 `npm run build:desktop-ui`，不会隐式降级回 Next。
-Electron 主进程只读 `WECLIO_DESKTOP_AGENT_URL` / `WECLIO_DESKTOP_AGENT_TOKEN_FILE` /
-`WECLIO_DESKTOP_UI_DIR`；缺任何一个都在报错后退 1，不会启动任何后备后端。
+开发态 Electron 主进程读取 `WECLIO_DESKTOP_AGENT_URL` / `WECLIO_DESKTOP_AGENT_TOKEN_FILE` /
+`WECLIO_DESKTOP_UI_DIR`；缺任何一个都在报错后退 1，不会启动后备后端。
+安装态则从资源目录启动自有 bundled Node/Service，认证并核对 READY、实例、PID 与协议后才加载静态 UI。
 令牌经受限 IPC（`agent-service:config`，仅接受 `weclio://app` 发送方）交给渲染器保存在内存，
 不写入静态资产或 URL。
 
@@ -31,9 +32,24 @@ Electron 主进程只读 `WECLIO_DESKTOP_AGENT_URL` / `WECLIO_DESKTOP_AGENT_TOKE
 
 `dev:lan` 仅启动 UI，不启动或公开 Agent；必须显式配置所选 Service 与来源策略。未配置时只显示提示。
 `start` / `start:lan` / `weclio-web` 仅服务已构建的 Next UI，不启动 Agent，并拒绝含旧业务路由或 instrumentation 的编译产物。
-当前 Desktop 安装版链路（内置 Service、打包后的静态资产布局）尚未完成，属于 P4–P6；
-`electron/production.mjs` 仍保留为旧安装版启动路径，但 `main.mjs` 已不再调用它。
+Desktop 候选资源已接线，旧 `production.mjs` / Next server 启动链已移除；更新交接 P5 与真实安装/升级 P6 尚未完成，
 不得把当前分支当作可发布安装包。
+
+## Local Desktop Candidate Build
+
+仅在获准本地构建时执行；不安装系统软件、不构建 NSIS、不签名或上传：
+
+```bash
+npm run prepare:desktop-runtime  # 首次获取官方完整 Node ZIP、校验固定摘要，保留 Node/npm/npx/shims/许可证
+npm run build:desktop            # build/desktop/{ui,service,host}；不会写 dev UI 或 .next
+WECLIO_SERVICE_ARTIFACT="$PWD/build/desktop/service" WECLIO_NODE_RUNTIME="$PWD/resources/runtime/win-x64/node" \\
+  node --test --test-concurrency=4 electron/service-artifact.integration.test.mjs
+```
+
+Runtime 固定版本与摘要在 `electron/node-runtime.mjs`；本机缓存和资源二进制不进 Git。
+Service/Host 依赖分别按实际运行时引用和根锁校验闭包，保留 SDK 动态加载器、TS 扩展、WASM、模板与许可证。
+产物测试移到仓库外、隔离 HOME、不依赖仓库源码/根 node_modules，使用本机模型 fixture，不发送真实 provider 提示。
+普通全量测试默认跳过这项耗时产物测试；`release:desktop` 在完整构建及 quick 复用路径上均显式执行，不可跳过。
 
 ## Checks
 

@@ -126,10 +126,19 @@ async function acquire(request: ResourceRequest, options: ResourceOptions): Prom
 /** 每次点击新签发，避免下载链接在长时间打开的页面里提前过期。 */
 export async function downloadResource(filePath: string, sessionId?: string | null, options: { source?: "bash-output"; signal?: AbortSignal } = {}): Promise<void> {
   const resource = await acquireResource({ filePath, kind: "download", sessionId, source: options.source }, { native: true, signal: options.signal });
-  const anchor = document.createElement("a");
-  anchor.href = resource.url;
-  anchor.download = getFileName(filePath);
-  anchor.referrerPolicy = "no-referrer";
-  document.body.appendChild(anchor);
-  try { options.signal?.throwIfAborted(); anchor.click(); } finally { anchor.remove(); resource.release(); }
+  try {
+    options.signal?.throwIfAborted();
+    // Desktop 主窗口禁止跨源导航；只把已签发的票据交给宿主下载，不改变资源授权流程。
+    if (typeof window !== "undefined" && window.weclioDesktop?.downloadResource) {
+      try { await window.weclioDesktop.downloadResource(resource.url); }
+      catch { throw new ResourceRequestError("Resource download failed"); }
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = resource.url;
+    anchor.download = getFileName(filePath);
+    anchor.referrerPolicy = "no-referrer";
+    document.body.appendChild(anchor);
+    try { anchor.click(); } finally { anchor.remove(); }
+  } finally { resource.release(); }
 }

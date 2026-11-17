@@ -47,7 +47,7 @@ async function seedPackage(root, destination, name) {
     manifests.set(directory, manifest);
     const require = createRequire(join(directory, "package.json"));
     for (const dependency of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies })) {
-      const file = require.resolve.paths(dependency).map((base) => join(base, dependency, "package.json")).find(existsSync);
+      const file = require.resolve.paths(`${dependency}/package.json`).map((base) => join(base, dependency, "package.json")).find(existsSync);
       if (!file && dependency in (manifest.optionalDependencies ?? {})) continue;
       if (!file || !file.startsWith(modules + sep)) throw new Error(`内置包缺少生产依赖: ${dependency}`);
       queue.push(dirname(file));

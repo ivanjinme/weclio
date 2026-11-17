@@ -20,3 +20,22 @@ export function createRuntimeEnvironment(runtimeRoot, env = process.env, platfor
   }).join(";");
   return result;
 }
+
+/** 独立 Service 固定优先使用包内 Node/npm；Git/Bash 仍沿用用户 PATH，rg/fd 仅兜底。 */
+export function createServiceRuntimeEnvironment(nodeRoot, toolsRoot, env = process.env, platform = process.platform) {
+  const result = createRuntimeEnvironment(toolsRoot, env, platform);
+  for (const key of Object.keys(result)) {
+    const name = key.toUpperCase();
+    if (["ELECTRON_RUN_AS_NODE", "NODE_OPTIONS", "NODE_PATH", "NEXT_RUNTIME", "TURBOPACK", "WECLIO_DESKTOP_UPDATE_IPC"].includes(name) || name.startsWith("__NEXT_")) delete result[key];
+  }
+  if (platform === "win32") {
+    const entries = [nodeRoot, ...(result.PATH ?? "").split(";")];
+    const seen = new Set();
+    result.PATH = entries.filter((entry) => {
+      if (!entry || seen.has(entry.toLowerCase())) return false;
+      seen.add(entry.toLowerCase());
+      return true;
+    }).join(";");
+  } else result.PATH = `${nodeRoot}:${result.PATH ?? ""}`;
+  return result;
+}

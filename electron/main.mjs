@@ -6,6 +6,9 @@ import { initializeUpdates, registerUpdateBridge, UPDATE_CHANNELS } from "./upda
 import { createUpdateInstaller } from "./update-install.mjs";
 import { isAppUrl, isExternalUrl, isPermissionAllowed } from "./navigation.mjs";
 import { APP_ENTRY_URL, APP_SCHEME, createAppProtocolHandler, registerAppScheme } from "./protocol.mjs";
+import { startLocalAgentService } from "./local-service.mjs";
+import { resolveDesktopTools } from "./toolsets.mjs";
+import { desktopStartupPage } from "../lib/startup-splash.mjs";
 
 app.setName("Weclio");
 // 必须在 ready 之前注册：standard/secure 才有稳定 origin 与 fetch 能力。
@@ -48,6 +51,8 @@ if (!holdsSingleInstance) {
   });
 }
 let mainWindow = null;
+let localService = null;
+const startup = new AbortController();
 let quitting = false;
 let updates = null;
 const installer = createUpdateInstaller({
@@ -64,6 +69,8 @@ const installer = createUpdateInstaller({
 const removeUpdateBridge = registerUpdateBridge({ ipcMain, getWindow: () => mainWindow, isAppUrl, getService: () => updates, dialog, installer });
 
 function showError(message) {
+  startup.abort();
+  void localService?.stop().catch((error) => console.error("[desktop] Service 停止失败:", error.message));
   console.error(`[desktop] ${message}`);
   dialog.showErrorBox("Weclio 桌面启动失败", message);
   app.exit(1);
@@ -78,7 +85,7 @@ function readAgentService() {
   const tokenFile = process.env.WECLIO_DESKTOP_AGENT_TOKEN_FILE;
   const uiDir = process.env.WECLIO_DESKTOP_UI_DIR;
   if (!baseUrl || !tokenFile || !uiDir) {
-    throw new Error("缺少独立 Agent Service 连接配置。开发模式请运行 npm run dev:desktop；内置 Service 的打包尚未完成，不能直接启动安装版。");
+    throw new Error("缺少独立 Agent Service 开发连接配置。请运行 npm run dev:desktop，不要直接运行 Electron 入口。");
   }
   let url;
   try { url = new URL(baseUrl); } catch { throw new Error(`Agent Service 地址无效: ${baseUrl}`); }
@@ -99,6 +106,10 @@ app.on("before-quit", (event) => {
 app.on("will-quit", () => {
   console.log("[desktop] 正在退出。");
   quitting = true;
+  startup.abort();
+  void localService?.stop().catch((error) => console.error("[desktop] Service 停止失败:", error.message));
+  ipcMain.removeHandler("agent-service:config");
+  ipcMain.removeHandler("resource:download");
   installer.dispose();
   updates?.stop();
   removeUpdateBridge();
@@ -207,12 +218,33 @@ function createMainWindow() {
 
 if (holdsSingleInstance) app.whenReady().then(async () => {
   const window = createMainWindow();
-  const agent = readAgentService();
+  let agent;
+  if (app.isPackaged) {
+    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(desktopStartupPage())}`);
+    const toolsRoot = await resolveDesktopTools({ resourcesPath: process.resourcesPath, storeBase: process.env.LOCALAPPDATA, signal: startup.signal });
+    localService = await startLocalAgentService({
+      resourcesPath: process.resourcesPath, stateDir: join(app.getPath("userData"), "agent-service"),
+      logsPath: app.getPath("logs"), appVersion: app.getVersion(), toolsRoot,
+      signal: startup.signal, onUnexpectedExit: (error) => { if (!quitting) showError(error.message); },
+    });
+    agent = localService;
+  } else agent = readAgentService();
   // 静态资产只从构建目录读取；协议不代理任何 Agent API。
   protocol.handle(APP_SCHEME, createAppProtocolHandler(agent.uiDir, { serviceUrl: agent.baseUrl }));
+  const assertAppSender = (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !isAppUrl(event.senderFrame?.url ?? "")) throw new Error("Untrusted desktop sender");
+  };
   ipcMain.handle("agent-service:config", (event) => {
-    if (!isAppUrl(event.senderFrame?.url ?? "")) throw new Error("Untrusted Agent service config sender");
+    assertAppSender(event);
     return { baseUrl: agent.baseUrl, token: agent.token };
+  });
+  ipcMain.handle("resource:download", (event, resourceUrl) => {
+    assertAppSender(event);
+    if (typeof resourceUrl !== "string" || resourceUrl.length > 20_000) throw new Error("Invalid desktop resource URL");
+    const url = new URL(resourceUrl);
+    if (url.origin !== agent.baseUrl || url.username || url.password || url.pathname !== "/v1/resources/content" || url.hash || url.searchParams.size !== 1 || !url.searchParams.get("ticket")) throw new Error("Invalid desktop resource URL");
+    // 不放宽主窗口导航，也不接收路径或请求头；文件授权仍由 Service 兑换票据时检查。
+    mainWindow.webContents.downloadURL(url.href);
   });
   if (quitting) return;
   await window.loadURL(APP_ENTRY_URL);

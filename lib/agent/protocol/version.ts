@@ -1,5 +1,6 @@
 // 协议握手：protocol.version 表示 major；应用版本与 Pi 版本只是实现元数据，不参与兼容判断。
-export const PROTOCOL_VERSION = 1;
+import { PROTOCOL_VERSION } from "./version-value.mjs";
+export { PROTOCOL_VERSION };
 
 export interface ServiceInfo {
   serviceId: string;

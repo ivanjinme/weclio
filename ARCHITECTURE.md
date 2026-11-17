@@ -37,6 +37,8 @@ Deployment:
 - AgentRuntime is explicitly owned by the Service host, not a Next/HMR singleton. UI requires an explicitly selected Service; the Desktop host supplies that selection through a restricted IPC bridge.
 - Shared services have no Next.js/Electron dependencies.
 - Hosts own transport and lifecycle; shared services own business logic.
+- Packaged Desktop starts its own Service with the pinned bundled Node/npm, never system Node or `ELECTRON_RUN_AS_NODE`; only development may use system Node.
+- Service and updater Host have separate runtime dependency closures; Desktop contains no Next server. VM/standalone deployment is not a current release gate.
 - Pi owns agent execution, session persistence/tree semantics, and model-context construction. Do not reimplement them.
 
 ## Current Code Entrypoints
@@ -55,7 +57,9 @@ Deployment:
 | Referenced external files | `lib/session-file-references.ts` |
 | Default workspace | `lib/default-workspace.ts` |
 | Shared file drafts | `components/AppShell.tsx`, `lib/draft-store.ts`, `lib/file-draft.ts` |
-| Desktop processes / bundled tools | `electron/main.mjs`, `electron/toolsets.mjs` |
+| Desktop owned Service / identity | `electron/main.mjs`, `electron/local-service.mjs` |
+| Bundled Node/npm / tools | `electron/node-runtime.mjs`, `electron/runtime.mjs`, `electron/toolsets.mjs` |
+| Production artifact closure | `electron/service-build.mjs`, `electron/build.mjs`, `electron/builder.json` |
 | Static Desktop UI protocol | `electron/protocol.mjs`, `desktop/main.tsx`, `desktop/index.html` |
 | Desktop Service connection bridge | `electron/preload.cjs`, `electron/main.mjs` (`agent-service:config`) |
 | Dev supervisor (Service + UI/Electron) | `electron/dev-service-ui.mjs`, `electron/dev.mjs` |

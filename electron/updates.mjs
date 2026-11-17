@@ -226,8 +226,8 @@ export function createUpdateService({ updater, token, abort = new AbortControlle
 export async function initializeUpdates({ app, publish, log = console.error }) {
   const config = await loadUpdateConfig({ packaged: app.isPackaged, resourcesPath: process.resourcesPath });
   if (!config || process.platform !== "win32") return null;
-  // 复用 server 的生产依赖，不向小型 ASAR 再复制一棵 node_modules。
-  const require = app.isPackaged ? createRequire(join(process.resourcesPath, "server/package.json")) : createRequire(import.meta.url);
+  // updater 使用独立 Host 闭包；不借用 Service/旧 Next server 的依赖。
+  const require = app.isPackaged ? createRequire(join(process.resourcesPath, "host/package.json")) : createRequire(import.meta.url);
   const { NsisUpdater } = require("electron-updater");
   const { Provider } = require("electron-updater/out/providers/Provider.js");
   const { CancellationToken } = createRequire(require.resolve("electron-updater"))("builder-util-runtime");

@@ -3,19 +3,21 @@
 > 本文件是随安装包分发的那份 `readme.md` 的**唯一源头**（`build/desktop/dist/readme.md` 是副本，
 > `/build` 被 gitignore，不要只改副本）。发布桌面安装包时核对并同步过去一起发给用户；修改本文件不会自动更新已有副本或安装包。
 
-## 一、前置条件（按顺序装，缺一不可）
+> 本文现按新版重构候选结构编写；P5 更新交接、P6 真实安装/升级尚未验收，不表示旧版安装包已具有这些能力。发布前移除此候选提示并核对实际安装包。
 
-**1. Node.js 22.19 或更高**
+## 一、安装与可选环境
 
-- 安装 Node.js 22.19 或更高版本的 Windows x64 安装包，一路默认「下一步」。
-- 验证：打开「命令提示符」输入 `node -v`，应显示 `v22.19.0` 或更高。
-- 版本过低时应用会拒绝启动，需先升级 Node。
+**1. Weclio 自带 Node/npm/npx，无需安装系统 Node**
 
-**2. Git for Windows（含 Git Bash）**
+- 使用 Windows x64 的 Weclio 安装包。
+- 本地 Agent Service 使用随包 Node，界面是静态 React，不再启动 Next Server。
+- 不需要额外安装 Pi 或 npm，也不会替换机器上的系统 Node。
+
+**2. 使用 Bash/Git 功能时安装 Git for Windows（含 Git Bash）**
 
 - 打开 https://git-scm.com/download/win ，下载 **64-bit Git for Windows Setup**。
 - 安装时**全部默认选项**即可，默认路径 `C:\Program Files\Git`。
-- **不需要手动改 PATH**：应用会自动到默认安装路径找 `Git\bin\bash.exe`。
+- 标准安装后重新打开 Weclio；非标准安装路径请确保 Git/Bash 可被用户 PATH 找到。
 - 验证：命令提示符输入 `git --version`，能显示版本号即可。
 
 **3. Weclio 安装包**
@@ -23,20 +25,20 @@
 - 双击本次收到的 `Weclio-<版本>-x64-Setup.exe`，安装到默认目录。
 - 重复双击不会启动第二个实例；已在运行时只会把窗口唤到前面。
 
-## 二、为什么需要 Node 和 Git
+## 二、哪些工具由安装包提供
 
-- **Node**：应用的服务端（Next）用系统 Node 运行，不内置。
+- **Node/npm/npx**：由安装包提供，供独立 Agent Service 使用；不依赖系统 Node。
 - **Git**：文件改动标记与 diff、技能更新检查都依赖它；
   对话里的 `bash` 工具用的是 Git 自带的 Git Bash。
-- 未安装 Git 时：相关 Git 功能可能不可用或报错，`bash` 不可用时可使用 PowerShell 工具。
-  **这是环境缺前置，不是程序故障**——装上 Git 重启应用即可恢复。
+- 未安装 Git 时仍可启动应用，但 Git 状态/diff 与 Bash 能力不可用或会明确报告缺失。
+  PowerShell 不是 Git Bash 的等价替代；需要这些功能时请安装 Git 后重启应用。
 - rg/fd 搜索工具由安装包提供并缓存复用，无需另装；它们不替代 Git Bash。
 
 ## 三、升级
 
 - **所有桌面更新使用同一安装包通道**，没有独立业务 ZIP 或 npm 更新。
-  后台下载期间旧版可继续使用；准备完成后点击「重启更新」，任务忙碌时会阻止安装。
-  正常关闭应用不会自动安装更新。
+  **重构候选当前仍拒绝安装更新**：真实 Service 门禁及失败恢复需在 P5 完成，不能把构建通过当成更新可用。
+  发布前须验证忙任务/未保存草稿阻止安装、失败恢复，以及正常关闭不会自动安装更新。
 - 更新使用 EXE/blockmap 差异下载，必要时回退全量；仍需安装并重开，**不保证几十秒完成**。
   真实 Windows VM 的成功差异传输尚未验证。
 - 也可双击新版 `Setup.exe` 覆盖安装，无需先卸载。安装期间窗口会关闭，
@@ -64,4 +66,6 @@
 
 - 对 AI 说「本次会话的 trajectory trace file 在哪里？」，把该文件发给 ivanjin@weclio.com，
   并说明你的预期结果与实际结果。
+- 本地 Agent 日志为应用日志目录下的 `agent-service.log`，主进程错误为 `main.log`。
+- 排障材料不要包含 `auth.json`、`service-token`、API key 或带 `ticket=` 的完整资源 URL。
 - 其它问题：ivanjin@weclio.com

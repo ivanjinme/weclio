@@ -157,5 +157,7 @@ export async function main(): Promise<void> {
   process.stdin.on("data", (chunk: string) => {
     if (chunk.split(/\r?\n/).some((line) => line.trim() === "shutdown")) void shutdown("control");
   });
+  // 只有受 Desktop 管理的实例才把父进程控制管道关闭视为退出；独立部署不能依赖 stdin。
+  if (process.env.WECLIO_AGENT_PARENT_STDIN === "1") process.stdin.once("end", () => { void shutdown("control"); });
   process.stdin.resume();
 }

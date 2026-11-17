@@ -10,14 +10,15 @@ import { loadUpdateConfig, makeDownloadOnlyUpdater } from "./updates.mjs";
 
 const config = JSON.parse(await readFile(new URL("./builder.json", import.meta.url), "utf8"));
 
-test("server dependencies have a dedicated resource mapping, including nested dependencies and assets", async (t) => {
-  const mapping = config.extraResources.find((entry) => entry.to === "server/node_modules");
-  assert.equal(mapping?.from, "build/desktop/server/node_modules");
+test("Service dependencies have a dedicated resource mapping, including nested dependencies and assets", async (t) => {
+  const mapping = config.extraResources.find((entry) => entry.to === "service/node_modules");
+  assert.equal(mapping?.from, "build/desktop/service/node_modules");
+  assert.equal(config.extraResources.find((entry) => entry.to === "host/node_modules")?.from, "build/desktop/host/node_modules");
   const root = await mkdtemp(join(tmpdir(), "weclio-resource-copy-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const source = join(root, "node_modules");
-  const destination = join(root, "resources/server/node_modules");
-  const files = ["next/dist/bin/next", "next/node_modules/dependency/index.js", "sdk/resource.wasm", "sdk/LICENSE",
+  const destination = join(root, "resources/service/node_modules");
+  const files = ["sdk/dist/index.js", "sdk/node_modules/dependency/index.js", "sdk/resource.wasm", "sdk/LICENSE",
     "@weclio/plugins/extensions/pi-citations/index.ts", "@weclio/plugins/LICENSE",
     "weclio-cli/bin/weclio.js", "weclio-cli/dist/cli.js", "weclio-cli/node_modules/commander/index.js",
     "weclio-cli/skills/docx/scripts/office/validate.py", "weclio-cli/skills/tra-md2word/assets/reference.docx"];
@@ -34,24 +35,24 @@ test("installer updater packages only its runtime modules, not obsolete applicat
   assert.deepEqual(config.files, [
     "electron/main.mjs", "lib/startup-splash.mjs", "electron/navigation.mjs", "electron/protocol.mjs", "electron/preload.cjs",
     "electron/updates.mjs", "electron/update-signature.mjs", "electron/update-install.mjs",
-    "electron/production.mjs", "electron/runtime.mjs", "electron/toolsets.mjs", "electron/server.mjs",
-    "bin/node-version.js", "bin/ui-build.js", "LICENSE", "!node_modules/**/*",
+    "electron/local-service.mjs", "electron/node-runtime.mjs", "lib/agent/protocol/version-value.mjs",
+    "electron/runtime.mjs", "electron/toolsets.mjs", "LICENSE", "!node_modules/**/*",
   ]);
   assert.deepEqual(config.extraResources.find((entry) => entry.from === "resources"), { from: "resources", to: ".", filter: ["desktop-update.json"] });
 });
 
-test("server resources omit build tracing and source maps without losing runtime manifests or assets", async (t) => {
+test("Service resources contain compiled code and manifests, never Next or development source", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "weclio-server-filter-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const source = join(root, "server");
+  const source = join(root, "service");
   const destination = join(root, "copied");
-  const kept = ["package.json", "next.config.js", "desktop-packages.mjs", "LICENSE", "public/brand/logo.svg", ".next/BUILD_ID", ".next/required-server-files.json", ".next/server/app/api/test/route.js", ".next/static/chunks/test.js", ".next/server/app/page.js.map-data.json"];
-  const omitted = [".next/server/app/api/test/route.js.nft.json", ".next/next-server.js.nft.json", ".next/server/chunks/test.js.map", ".next/static/chunks/test.mjs.map", ".next/server/test.cjs.map", ".next/cache/secret.json", ".next/trace", ".next/trace-build"];
+  const kept = ["package.json", "entry.mjs", "service-manifest.json", "electron/packages.mjs", "LICENSE", "lib/agent/service/entry.js", "lib/agent/protocol/version-value.mjs"];
+  const omitted = ["next.config.js", "app/page.tsx", "components/private.tsx", ".env", "tsconfig.json", ".next/BUILD_ID", ".next/server/app/api/test/route.js"];
   for (const file of [...kept, ...omitted]) {
     await mkdir(join(source, file, ".."), { recursive: true });
     await writeFile(join(source, file), file);
   }
-  const mapping = config.extraResources.find((entry) => entry.to === "server");
+  const mapping = config.extraResources.find((entry) => entry.to === "service");
   await copyFiles([new FileMatcher(source, destination, (value) => value, mapping.filter)]);
   for (const file of kept) assert.equal(await readFile(join(destination, file), "utf8"), file);
   for (const file of omitted) await assert.rejects(readFile(join(destination, file)), { code: "ENOENT" });
@@ -62,7 +63,7 @@ test("bootstrap installer ships a generated toolset descriptor separately from t
 });
 
 test("installer has no obsolete shell descriptor or business package resources", () => {
-  assert.deepEqual(config.extraResources.map((entry) => entry.to), [".", "server", "server/node_modules", "desktop-toolset.json", "runtime/win-x64"]);
+  assert.deepEqual(config.extraResources.map((entry) => entry.to), [".", "ui", "service", "service/node_modules", "host", "host/node_modules", "desktop-toolset.json", "runtime/win-x64", "runtime/win-x64/node/node_modules"]);
 });
 
 test("production updater cache matches the installer cache instead of the development fallback", async () => {
@@ -78,11 +79,13 @@ test("desktop metadata supplies the branded Windows shortcut description", () =>
   assert.equal(config.extraMetadata.description, "Weclio - Build an AI Scientist");
 });
 
-test("the application keeps its server outside asar and includes no system Node installer", () => {
-  assert.ok(config.files.includes("electron/production.mjs"));
+test("Service and complete Node/npm Runtime stay outside asar; no system Node installer or Next server", () => {
+  assert.ok(config.files.includes("electron/local-service.mjs"));
   assert.ok(config.files.includes("!node_modules/**/*"));
-  assert.ok(config.extraResources.find((entry) => entry.to === "server").filter.includes("desktop-packages.mjs"));
-  assert.deepEqual(config.extraResources.find((entry) => entry.to === "runtime/win-x64").filter, ["tools/**/*"]);
+  assert.ok(config.extraResources.find((entry) => entry.to === "service").filter.includes("electron/packages.mjs"));
+  assert.deepEqual(config.extraResources.find((entry) => entry.to === "runtime/win-x64").filter, ["tools/**/*", "node/**/*", "!node/node_modules/**/*"]);
+  assert.ok(config.extraResources.some((entry) => entry.to === "runtime/win-x64/node/node_modules"));
+  assert.equal(config.extraResources.some((entry) => entry.to.startsWith("server")), false);
   assert.equal(config.npmRebuild, false);
   assert.equal(config.nsis.deleteAppDataOnUninstall, false);
 });

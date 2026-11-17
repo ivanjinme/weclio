@@ -32,6 +32,7 @@
     "dev:desktop": "npm run build:desktop-ui && node electron/dev.mjs",
     "dev:web": "node electron/dev-service-ui.mjs",
     "dev:lan": "next dev -H 0.0.0.0 -p 8888",
+    "prepare:desktop-runtime": "node electron/node-runtime.mjs",
     "build:desktop": "node electron/build.mjs",
     "pack:desktop": "npm run build:desktop && electron-builder --config electron/builder.json --win --x64 --dir",
     "dist:desktop": "npm run build:desktop && electron-builder --config electron/builder.json --win --x64",
