@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import http from "node:http";
 import { test } from "node:test";
-import { SERVER_URL, isAppUrl, isExternalUrl, isPermissionAllowed } from "./navigation.mjs";
+import { isAppUrl, isExternalUrl, isPermissionAllowed } from "./navigation.mjs";
 import { assertPortAvailable, waitForServer } from "./server.mjs";
 
 async function serve(t, handler) {
@@ -17,34 +16,11 @@ async function serve(t, handler) {
   return { port: server.address().port, url: `http://127.0.0.1:${server.address().port}` };
 }
 
-test("desktop defaults to the shared web port and accepts a launcher-provided origin", () => {
-  const moduleUrl = new URL("./navigation.mjs", import.meta.url).href;
-  const script = `import { SERVER_URL } from ${JSON.stringify(moduleUrl)}; process.stdout.write(SERVER_URL);`;
-  const env = { ...process.env };
-  delete env.WECLIO_DESKTOP_URL;
-  delete env.PORT;
-  assert.equal(execFileSync(process.execPath, ["--input-type=module", "-e", script], { env, encoding: "utf8" }), "http://127.0.0.1:8888");
-  env.WECLIO_DESKTOP_URL = "http://127.0.0.1:49152";
-  assert.equal(execFileSync(process.execPath, ["--input-type=module", "-e", script], { env, encoding: "utf8" }), env.WECLIO_DESKTOP_URL);
-});
-
-test("port 80 is canonicalized without accepting paths, credentials or external origins", () => {
-  const moduleUrl = new URL("./navigation.mjs", import.meta.url).href;
-  const script = `import {SERVER_URL,isAppUrl} from ${JSON.stringify(moduleUrl)};process.stdout.write(JSON.stringify([SERVER_URL,isAppUrl('http://127.0.0.1:80/test')]));`;
-  const env = { ...process.env, PORT: "80" };
-  delete env.WECLIO_DESKTOP_URL;
-  assert.deepEqual(JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], { env, encoding: "utf8" })), ["http://127.0.0.1", true]);
-  env.WECLIO_DESKTOP_URL = "http://127.0.0.1:80";
-  assert.deepEqual(JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], { env, encoding: "utf8" })), ["http://127.0.0.1", true]);
-  for (const address of ["http://example.com:80", "http://localhost:80", "https://127.0.0.1:80", "http://user:password@127.0.0.1:80", "http://127.0.0.1:80/path", "http://127.0.0.1:80?query=1", "http://127.0.0.1:80#hash"]) {
-    env.WECLIO_DESKTOP_URL = address;
-    assert.notEqual(spawnSync(process.execPath, ["--input-type=module", "-e", script], { env, encoding: "utf8" }).status, 0, address);
+test("only static application entry paths may navigate inside the desktop", () => {
+  for (const url of ["weclio://app", "weclio://app/", "weclio://app/?session=123#message", "weclio://app/index.html?session=123#message"]) {
+    assert.equal(isAppUrl(url), true, url);
   }
-});
-
-test("only the exact application origin may navigate inside the desktop", () => {
-  assert.equal(isAppUrl(`${SERVER_URL}/?session=123`), true);
-  for (const url of ["https://example.com", "http://127.0.0.1:8889", "http://127.0.0.1:9999", "http://localhost:8888", "http://127.0.0.1:8888.evil.com", "file:///C:/secret", "javascript:alert(1)", "invalid"]) {
+  for (const url of ["http://127.0.0.1:8888", "http://127.0.0.1:8888/?session=123", "weclio://app/assets/app.js", "weclio://app/other.html", "weclio://app/index.html/", "weclio://other/index.html", "weclio://user:pass@app/index.html", "weclio://app:8888/index.html", "https://example.com", "http://127.0.0.1:8889", "http://127.0.0.1:9999", "http://localhost:8888", "http://127.0.0.1:8888.evil.com", "file:///C:/secret", "javascript:alert(1)", "invalid"]) {
     assert.equal(isAppUrl(url), false, url);
   }
 });
@@ -52,23 +28,24 @@ test("only the exact application origin may navigate inside the desktop", () => 
 test("only external HTTP(S) links may open outside the desktop", () => {
   assert.equal(isExternalUrl("https://example.com/docs"), true);
   assert.equal(isExternalUrl("http://example.com/docs"), true);
-  for (const url of [SERVER_URL, "file:///C:/secret", "mailto:test@example.com", "vscode://file/test", "javascript:alert(1)", "data:text/html,test", "invalid"]) {
+  assert.equal(isExternalUrl("http://127.0.0.1:8888"), true);
+  for (const url of ["weclio://app/", "weclio://app/index.html", "file:///C:/secret", "mailto:test@example.com", "vscode://file/test", "javascript:alert(1)", "data:text/html,test", "invalid"]) {
     assert.equal(isExternalUrl(url), false, url);
   }
 });
 
 test("clipboard writes are allowed only for the application origin", () => {
-  for (const url of [SERVER_URL, `${SERVER_URL}/?session=123`]) {
+  for (const url of ["weclio://app", "weclio://app/", "weclio://app/index.html?session=123#message"]) {
     assert.equal(isPermissionAllowed("clipboard-sanitized-write", url), true, url);
   }
-  for (const url of ["https://example.com", "http://127.0.0.1:8889", "http://localhost:8888", "file:///C:/secret", "data:text/html,test", "invalid", "", undefined]) {
+  for (const url of ["http://127.0.0.1:8888", "weclio://app/assets/app.js", "weclio://user:pass@app/", "weclio://app:8888/", "https://example.com", "http://127.0.0.1:8889", "http://localhost:8888", "file:///C:/secret", "data:text/html,test", "invalid", "", undefined]) {
     assert.equal(isPermissionAllowed("clipboard-sanitized-write", url), false, String(url));
   }
 });
 
 test("clipboard reads and other permissions remain denied for the application", () => {
   for (const permission of ["clipboard-read", "deprecated-sync-clipboard-read", "media", "geolocation", "notifications", "openExternal", "unknown"]) {
-    assert.equal(isPermissionAllowed(permission, SERVER_URL), false, permission);
+    assert.equal(isPermissionAllowed(permission, "weclio://app/index.html"), false, permission);
   }
 });
 

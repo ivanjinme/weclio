@@ -57,10 +57,13 @@ nextArgs.push("-H", hostname);
 
 // Always run next's JS entry with node directly — avoids .bin symlink issues
 // and path-with-spaces problems on Windows when shell: true is used.
+// 生产入口固定使用已检查的 .next，不能继承开发输出目录绕过产物检查。
+const childEnv = { ...process.env, NODE_ENV: "production", PI_WEB_HOSTNAME: hostname };
+delete childEnv.WECLIO_DEV_UI_DIST_DIR;
 const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env, PI_WEB_HOSTNAME: hostname },
+  env: childEnv,
 });
 
 let browserOpened = false;

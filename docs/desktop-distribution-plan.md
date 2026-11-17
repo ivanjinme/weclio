@@ -64,12 +64,11 @@ Weclio
 | --- | --- | --- |
 | **P1** | 客户端双路由表（`lib/agent/routes.ts`）+ dev 脚本起独立 Service + 浏览器实跑 | 同一 UI 连两种宿主行为一致；SSE 重连/文件/预览/下载/设置可用 |
 | **P2** | 退役 Web 进程内 Agent（Next 只留 UI） | Web 内 `import rpc-manager` = 0；`next start` 只提供 UI |
-| **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 |
-| **P4** | 捆绑 Runtime（原 B2） | 干净 Windows 无 Node 可跑；VM 用系统 Node 跑同一产物 |
+| **P3** | Desktop 接 `weclio://app` 静态托管（dev 允许系统 Node 起 Service） | 窗口加载静态资产，无 `next start` 进程 || **P4** | 捆绑 Runtime（原 B2） | 干净 Windows 无 Node 可跑；VM 用系统 Node 跑同一产物 |
 | **P5** | 生命周期与更新门禁（原 B3） | 忙任务不被静默终止；更新失败可恢复 |
 | **P6** | 三产物构建 + 原子切换 + 发行（原 B4/B5） | 安装包无 Next Server；真实 A→B 升级不丢数据 |
 
-**当前：P1 用户已验收通过；P2 源码及开发隔离回归完成，生产 UI 构建验证待授权，之后进入 P3。**
+**当前：P1、P2 已验收完成；P3 静态 Desktop（协议、CSP、连接下发、开发启动器）已实现并实测，P4 未开始。**
 
 - 浏览器已验证侧栏、历史、模型设置；隔离本机模型 fixture 已验证新建、流式聊天、Service 重启后的历史恢复/续聊。
 - 测试代理强制断开真实 SSE 后，浏览器自动恢复并携带 `Last-Event-ID`；XHR 上传在隔离工作区真实落盘。
@@ -81,7 +80,18 @@ Weclio
 - 开发 Desktop/Web 共用 Service+Next UI 启动器；生产 UI 入口拒绝包含旧后端的编译产物。Next 不再能代表 Agent 返回更新 ready；真实 Service 门禁在 P5 接线，缺失时安装器拒绝安装，不能打包发布当前中间态。
 - 真实 provider/OAuth 未用真实凭据测试。P3 还须按选定 Service origin 配置静态 CSP 的 img/media/frame/connect 来源；未执行新的生产构建，也不把浏览器验收当作已打包 Desktop 验收。
 
-**纪律：** P1 通过前冻结进一步的服务抽取与宿主层打磨；不新增运行时开关或第二套 fallback。
+**P3 状态：静态托管已接线并实测通过；打包链路（内置 Service/资产布局/发行）仍属 P4–P6。**
+
+- 窗口加载 `weclio://app/index.html`，Desktop 不再启动 next dev/start；Service 连接由宿主进程下发，
+  经受限 IPC 交给渲染器内存，不写入静态资产或 URL；缺配置直接退 1，不隐式回退。
+- 协议只读静态目录（含 realpath 边界）、严格 CSP；`connect/media/frame` 仅允许已选定 Service 源，
+  `img` 保留外链图片但带不上 Service 凭据；导航只信任 `weclio://app` 入口，loopback HTTP 页面不再受信。
+- 开发启动器：Desktop 分支只预检 Service 端口，静态资产缺失即失败，Service READY 后直接拉起 Electron。
+- 实测：真实独立构建的 Next UI 仅渲染页面且 `/api/*` 全 404；真实 Electron + 隔离 Service 完成新建会话、
+  SSE 回复与资源读取。详见 [P3 记录](p3-static-desktop.md)。
+- 仍未完成：安装包内置 Service、静态资产布局与商业级更新门禁；`main.mjs` 已不再调用 `production.mjs`。
+
+**纪律：** 不新增运行时开关或 fallback；未完成打包前不得发布桌面安装包。
 
 ## 4. B2 — Local Agent Service 打包
 

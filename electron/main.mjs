@@ -1,16 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from "electron";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initializeUpdates, registerUpdateBridge, UPDATE_CHANNELS } from "./updates.mjs";
 import { createUpdateInstaller } from "./update-install.mjs";
-import { SERVER_URL, isAppUrl, isExternalUrl, isPermissionAllowed, restoreDesktopPort } from "./navigation.mjs";
-import { startProductionServer } from "./production.mjs";
-import { assertPortAvailable } from "./server.mjs";
-import { resolveDesktopTools } from "./toolsets.mjs";
-import { desktopStartupPage } from "../lib/startup-splash.mjs";
+import { isAppUrl, isExternalUrl, isPermissionAllowed } from "./navigation.mjs";
+import { APP_ENTRY_URL, APP_SCHEME, createAppProtocolHandler, registerAppScheme } from "./protocol.mjs";
 
 app.setName("Weclio");
+// 必须在 ready 之前注册：standard/secure 才有稳定 origin 与 fetch 能力。
+registerAppScheme(protocol);
 
 // 主进程错误必须落盘：Windows 上 GUI 进程没有终端可看 stderr，
 // 否则「启动失败 / 更新失败」只能靠猜（2026-11-09 就因为这一点无法定位）。
@@ -49,26 +48,46 @@ if (!holdsSingleInstance) {
   });
 }
 let mainWindow = null;
-let service = null;
 let quitting = false;
-const startup = new AbortController();
 let updates = null;
 const installer = createUpdateInstaller({
-  app, dialog, getService: () => updates, getWindow: () => mainWindow, getGate: () => service?.updateGate,
+  app, dialog, getService: () => updates, getWindow: () => mainWindow,
+  // Next/UI 无法代表独立 Service 的忙碌状态；未接真实门禁时安装器必须拒绝。
+  getGate: () => undefined,
   restoreWindow: async () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       const window = createMainWindow();
-      await window.loadURL(SERVER_URL);
+      await window.loadURL(APP_ENTRY_URL);
     }
   },
 });
 const removeUpdateBridge = registerUpdateBridge({ ipcMain, getWindow: () => mainWindow, isAppUrl, getService: () => updates, dialog, installer });
 
 function showError(message) {
-  service?.stop();
   console.error(`[desktop] ${message}`);
   dialog.showErrorBox("Weclio 桌面启动失败", message);
   app.exit(1);
+}
+
+/**
+ * 静态 UI 只通过 HTTP/SSE 连接已选定的独立 Service。
+ * 连接信息由宿主进程提供，不能写进静态资产或 URL。
+ */
+function readAgentService() {
+  const baseUrl = process.env.WECLIO_DESKTOP_AGENT_URL;
+  const tokenFile = process.env.WECLIO_DESKTOP_AGENT_TOKEN_FILE;
+  const uiDir = process.env.WECLIO_DESKTOP_UI_DIR;
+  if (!baseUrl || !tokenFile || !uiDir) {
+    throw new Error("缺少独立 Agent Service 连接配置。开发模式请运行 npm run dev:desktop；内置 Service 的打包尚未完成，不能直接启动安装版。");
+  }
+  let url;
+  try { url = new URL(baseUrl); } catch { throw new Error(`Agent Service 地址无效: ${baseUrl}`); }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error(`Agent Service 地址必须是 HTTP(S) 源: ${baseUrl}`);
+  }
+  const token = readFileSync(tokenFile, "utf8").trim();
+  if (!token) throw new Error(`Agent Service 令牌文件为空: ${tokenFile}`);
+  return { baseUrl: url.origin, token, uiDir };
 }
 
 app.on("window-all-closed", () => { if (!installer.isClosing()) app.quit(); });
@@ -80,8 +99,6 @@ app.on("before-quit", (event) => {
 app.on("will-quit", () => {
   console.log("[desktop] 正在退出。");
   quitting = true;
-  service?.stop();
-  startup.abort();
   installer.dispose();
   updates?.stop();
   removeUpdateBridge();
@@ -162,7 +179,7 @@ function createMainWindow() {
     if (!isAppUrl(url)) event.preventDefault();
   });
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternalUrl(url) || (isAppUrl(url) && new URL(url).protocol === "http:")) {
+    if (isExternalUrl(url)) {
       // 弹出链接交给浏览器，避免完整历史等页面替换主界面；禁止本地协议。
       void shell.openExternal(url).catch((error) => dialog.showErrorBox("无法打开链接", error.message));
     }
@@ -189,45 +206,23 @@ function createMainWindow() {
 }
 
 if (holdsSingleInstance) app.whenReady().then(async () => {
-  if (app.isPackaged) restoreDesktopPort(app.getPath("userData"));
   const window = createMainWindow();
-  if (app.isPackaged) {
-    // 先显示可关闭的启动页；异步初始化不能让慢磁盘上的首次启动看起来毫无响应。
-    const html = desktopStartupPage();
-    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-    let lastToolProgress = 0;
-    const toolsetsBase = process.env.LOCALAPPDATA;
-    // 端口冲突先失败，避免白白做一次首次工具迁移。
-    await assertPortAvailable(Number(new URL(SERVER_URL).port || 80));
-    const onToolProgress = (progress) => {
-      if (quitting || window.isDestroyed() || progress.reused) return;
-      const now = Date.now();
-      if (progress.phase !== "ready" && now - lastToolProgress < 250) return;
-      lastToolProgress = now;
-      console.log(`[desktop] 正在准备基础工具：${progress.completedFiles}/${progress.totalFiles}`);
-    };
-    const toolsRoot = await resolveDesktopTools({ resourcesPath: process.resourcesPath, storeBase: toolsetsBase, signal: startup.signal, onProgress: onToolProgress });
-    service = await startProductionServer({
-      resourcesPath: process.resourcesPath,
-      logsPath: app.getPath("logs"),
-      url: SERVER_URL,
-      signal: startup.signal,
-      toolsetsRoot: toolsRoot,
-      toolsetsBase,
-      onToolProgress,
-      onUnexpectedExit: (error) => showError(error.message),
-    });
-  }
-  if (!quitting) {
-    await window.loadURL(SERVER_URL);
-    // 页面就绪后再启动后台检查，不阻塞首屏；缺少配置时保持静默。
-    void initializeUpdates({ app, publish: (state) => {
-      if (mainWindow && !mainWindow.isDestroyed() && isAppUrl(mainWindow.webContents.getURL())) mainWindow.webContents.send(UPDATE_CHANNELS.state, state);
-    } }).then((service) => {
-      if (quitting) service?.stop();
-      else { updates = service; updates?.start(); }
-    }).catch((error) => console.error("[desktop-update]", error.message));
-  }
+  const agent = readAgentService();
+  // 静态资产只从构建目录读取；协议不代理任何 Agent API。
+  protocol.handle(APP_SCHEME, createAppProtocolHandler(agent.uiDir, { serviceUrl: agent.baseUrl }));
+  ipcMain.handle("agent-service:config", (event) => {
+    if (!isAppUrl(event.senderFrame?.url ?? "")) throw new Error("Untrusted Agent service config sender");
+    return { baseUrl: agent.baseUrl, token: agent.token };
+  });
+  if (quitting) return;
+  await window.loadURL(APP_ENTRY_URL);
+  // 页面就绪后再启动后台检查，不阻塞首屏；缺少配置时保持静默。
+  void initializeUpdates({ app, publish: (state) => {
+    if (mainWindow && !mainWindow.isDestroyed() && isAppUrl(mainWindow.webContents.getURL())) mainWindow.webContents.send(UPDATE_CHANNELS.state, state);
+  } }).then((service) => {
+    if (quitting) service?.stop();
+    else { updates = service; updates?.start(); }
+  }).catch((error) => console.error("[desktop-update]", error.message));
 }).catch((error) => {
   if (!quitting) showError(error.message);
 });

@@ -1,6 +1,7 @@
 # Action Plan A — Agent Service 架构演进
 
-> **A 线的主要抽取已实施，但不等于端到端验收完成。当前按 P1→P6 执行：P1 用户已验收通过，资源授权/Blob/Ticket 已实施；P2 的 Next 业务后端退役及开发隔离回归已完成，生产 UI 构建验证待授权，之后进入 P3。A4 延期；B1 静态入口已有基础，尚未切换正式宿主。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
+> **A 线的主要抽取已实施，但不等于端到端验收完成。当前按 P1→P6 执行：P1 用户已验收通过，资源授权/Blob/Ticket 已实施；P2 的 Next 业务后端退役完成，生产 UI 构建已独立验证；
+P3 的 Desktop 静态托管（`weclio://app`）已接线并实测，打包与内置 Service 仍待后续。A4 延期；B1 静态入口已有基础，尚未切换正式宿主。** Desktop 工作见 [Plan B](desktop-distribution-plan.md)。本文取代旧交接文档中“Desktop Agent IPC / Shared Agent Core”的建议，不改变已有实现事实。
 
 ## 1. 目标与架构决策
 
@@ -134,8 +135,7 @@ Desktop（Electron + 静态 React） / Web（React，可保留 Next）
 ## 4. 合并顺序、切换纪律与统一门禁
 
 ```text
-A1/A2/A3/A5 主要实现完成 → P1 用户验收通过 → P2 Web 去 Agent 源码完成（待生产构建验证）
-→ P3 Desktop 静态托管（下一阶段） → P4 Runtime/Service 打包 → P5 生命周期/更新保护 → P6 发行/升级
+A1/A2/A3/A5 主要实现完成 → P1 用户验收通过 → P2 Web 去 Agent 完成 → P3 Desktop 静态托管完成（打包待后续） → P4 Runtime/Service 打包 → P5 生命周期/更新保护 → P6 发行/升级
 
 P1 未通过前不删除旧 Next 路由；详见 desktop-distribution-plan.md 的 P1→P6 表。
 

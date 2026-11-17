@@ -4,7 +4,6 @@ import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isAbsolute, join, resolve } from "node:path";
-import { waitForServer } from "./server.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -44,23 +43,27 @@ async function stopTree(child) {
   signal("SIGKILL");
 }
 
-export async function main({ env = process.env, cwd = root, spawnChild = spawn, timeoutMs = 20_000, uiTimeoutMs = 120_000, desktop, onOutput = () => {} } = {}) {
+export async function main({ env = process.env, cwd = root, spawnChild = spawn, timeoutMs = 20_000, desktop, onOutput = () => {} } = {}) {
   const servicePort = port(env.WECLIO_DEV_SERVICE_PORT, 8899);
-  const uiPort = port(env.WECLIO_DEV_UI_PORT ?? (desktop ? env.PORT : undefined), 8888);
-  const uiUrl = `http://127.0.0.1:${uiPort}`;
+  const uiPort = desktop ? undefined : port(env.WECLIO_DEV_UI_PORT, 8888);
+  const uiUrl = desktop ? "weclio://app" : `http://127.0.0.1:${uiPort}`;
+  const assetDir = desktop ? resolve(cwd, env.WECLIO_DESKTOP_UI_DIR ?? "build/desktop-ui") : undefined;
+  if (desktop && !existsSync(join(assetDir, "index.html"))) {
+    throw new Error(`Desktop UI not found: ${join(assetDir, "index.html")}; run npm run build:desktop-ui before starting Desktop (or set WECLIO_DESKTOP_UI_DIR to a prebuilt asset directory)`);
+  }
   const childEnv = { ...env };
   delete childEnv.ELECTRON_RUN_AS_NODE;
   if (servicePort === uiPort) throw new Error("Service and UI ports must differ");
-  // 两个端口都检查完才创建子进程，绝不接管已存在的 UI 或 Service。
+  // Desktop 不占用 HTTP UI 端口；Web 两个端口都检查完才创建子进程。
   await checkPort(servicePort);
-  await checkPort(uiPort);
+  if (!desktop) await checkPort(uiPort);
   const stateDir = env.WECLIO_AGENT_STATE_DIR ?? join(cwd, "build/dev-service-state");
   const tokenPath = env.WECLIO_AGENT_TOKEN_FILE ?? join(stateDir, "service-token");
   if (!isAbsolute(stateDir) || !isAbsolute(tokenPath)) throw new Error("Service stateDir and token file must be absolute paths");
   // 独立输出目录隔离 NEXT_PUBLIC_* 编译产物，不清理用户的普通 Next UI。
   const distDir = env.WECLIO_DEV_UI_DIST_DIR ?? "build/dev-service-ui";
   const devOutput = resolve(cwd, distDir, "dev");
-  if (existsSync(join(devOutput, "lock"))) throw new Error(`Next dev output is locked: ${devOutput}; stop the dedicated service UI first`);
+  if (!desktop && existsSync(join(devOutput, "lock"))) throw new Error(`Next dev output is locked: ${devOutput}; stop the dedicated service UI first`);
 
   const children = [];
   let fail;
@@ -69,7 +72,6 @@ export async function main({ env = process.env, cwd = root, spawnChild = spawn, 
   failed.catch(() => {});
   let interrupted;
   const signal = new Promise((resolve) => { interrupted = resolve; });
-  const controller = new AbortController();
   const onSignal = () => interrupted();
   // process.exit() 不等待 finally；仅同步清理本次拥有的进程树。
   const onExit = () => {
@@ -153,30 +155,30 @@ export async function main({ env = process.env, cwd = root, spawnChild = spawn, 
     if (!started) return;
     const token = readFileSync(tokenPath, "utf8").trim();
     if (!token) throw new Error(`Agent token file is empty: ${tokenPath}`);
-    let uiOutput = "";
-    const ui = run("ui", [require.resolve("next/dist/bin/next"), "dev", "-H", "127.0.0.1", "-p", String(uiPort)], {
-      ...childEnv,
-      WECLIO_DEV_UI_DIST_DIR: distDir,
-      NEXT_PUBLIC_WECLIO_API_URL: `http://127.0.0.1:${servicePort}`,
-      NEXT_PUBLIC_WECLIO_API_BASE_PATH: "/v1",
-      NEXT_PUBLIC_WECLIO_AGENT_TOKEN: token,
-    }, (chunk) => { uiOutput = (uiOutput + chunk).slice(-8192); });
     if (desktop) {
-      const ready = await Promise.race([
-        waitForServer(uiUrl, {
-          signal: controller.signal,
-          timeout: uiTimeoutMs,
-          isReady: () => /Ready in/.test(uiOutput) && ui.exitCode === null && ui.signalCode === null,
-        }).then(() => true),
-        failed, signal,
-      ]);
-      if (!ready) return;
-      run("desktop", desktop.args ?? [], { ...childEnv, WECLIO_DESKTOP_URL: uiUrl }, undefined, desktop.executable);
+      // 静态资产已由启动器预检；Service 就绪后直接拉起 GUI，不再启动 Next。
+      const desktopEnv = {
+        ...childEnv,
+        WECLIO_DESKTOP_AGENT_URL: `http://127.0.0.1:${servicePort}`,
+        WECLIO_DESKTOP_AGENT_TOKEN_FILE: tokenPath,
+        WECLIO_DESKTOP_UI_DIR: assetDir,
+      };
+      delete desktopEnv.NEXT_PUBLIC_WECLIO_API_URL;
+      delete desktopEnv.NEXT_PUBLIC_WECLIO_API_BASE_PATH;
+      delete desktopEnv.NEXT_PUBLIC_WECLIO_AGENT_TOKEN;
+      run("desktop", desktop.args ?? [], desktopEnv, undefined, desktop.executable);
+    } else {
+      run("ui", [require.resolve("next/dist/bin/next"), "dev", "-H", "127.0.0.1", "-p", String(uiPort)], {
+        ...childEnv,
+        WECLIO_DEV_UI_DIST_DIR: distDir,
+        NEXT_PUBLIC_WECLIO_API_URL: `http://127.0.0.1:${servicePort}`,
+        NEXT_PUBLIC_WECLIO_API_BASE_PATH: "/v1",
+        NEXT_PUBLIC_WECLIO_AGENT_TOKEN: token,
+      });
     }
     await Promise.race([failed, signal]);
   } finally {
     clearTimeout(timer);
-    controller.abort();
     process.removeListener("SIGINT", onSignal);
     process.removeListener("SIGTERM", onSignal);
     try { await Promise.all(children.map(stopTree)); }

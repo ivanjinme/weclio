@@ -78,12 +78,11 @@ for (const parentExitsFirst of [false, true]) {
         }
         export function spawnSync() { throw new Error('Unexpected taskkill on POSIX'); }
       `,
-      "node:fs": "export function existsSync() { return false; } export function readFileSync() { return 'fixture-token'; }",
+      "node:fs": "export function existsSync(path) { return path.endsWith('index.html'); } export function readFileSync() { return 'fixture-token'; }",
       "node:net": `import { EventEmitter } from 'node:events';
         export function createServer() {
           return Object.assign(new EventEmitter(), { listen(options, ready) { ready(); }, close(done) { done(); } });
         }`,
-      "./server.mjs": "export async function waitForServer() {}",
     };
     run(`
       import assert from 'node:assert/strict';
@@ -104,12 +103,13 @@ for (const parentExitsFirst of [false, true]) {
         }
       };
       const { main } = await import(${JSON.stringify(supervisorUrl)});
-      const running = main({ env: { WECLIO_DEV_SERVICE_PORT: '18890', PORT: '18889' },
+      const assetDir = '/fixture-desktop-ui';
+      const running = main({ env: { WECLIO_DEV_SERVICE_PORT: '18890', WECLIO_DESKTOP_UI_DIR: assetDir },
         desktop: { executable: 'test-electron', args: [] } });
-      while (children.length < 3) await new Promise(resolve => setImmediate(resolve));
+      while (children.length < 2) await new Promise(resolve => setImmediate(resolve));
       if (${parentExitsFirst}) {
-        children[2].exitCode = 0;
-        children[2].emit('exit', 0, null);
+        children[1].exitCode = 0;
+        children[1].emit('exit', 0, null);
       } else process.emit('SIGINT');
       await running;
       for (const child of children) {

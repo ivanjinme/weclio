@@ -5,23 +5,35 @@ Repo root · Bash / Git Bash · stop on failure.
 ## Development
 
 ```bash
-npm run dev            # 默认：独立 Service + Next UI + Electron
+npm run dev            # 默认：构建静态 UI + 独立 Service + Electron（无 Next 进程）
 npm run dev:desktop    # 同上
 npm run dev:web        # 独立 Service（系统 Node）+ Next UI，浏览器访问
 npm run dev:service-ui # 与 dev:web 相同的诊断入口
 ```
 
-Desktop/Web 开发入口共用启动器，默认 UI8888 / Service8899；可用 `WECLIO_DEV_UI_PORT` /
-`WECLIO_DEV_SERVICE_PORT` 覆盖（Desktop 仍兼容 `PORT`）。先检查端口，再等 Service READY/token，
-最后启动 UI；Electron 还需等待本次 UI ready + HTTP。退出只清理自有进程树，不接管已有端口。
+Desktop 开发入口先构建一次 Vite 静态资产到 `build/desktop-ui`（约 40 秒），再由启动器起
+Service、等 READY/token，最后拉起 Electron；窗口加载 `weclio://app/index.html`，不再启动 next dev/start。
+只改组件时可手动 `npm run build:desktop-ui` 后重跑 `node electron/dev.mjs` 跳过重复构建。
+Service 默认 8899（`WECLIO_DEV_SERVICE_PORT`）；Desktop 不占用 UI 端口，Web 仍默认 UI8888。
+
+Service 就绪后才启动 GUI；Service 退出、Electron 非零退出或 logo 关闭都会清理自有进程树，
+不接管已有端口，也不按进程名杀系统 Node。
+
+未预先构建静态资产时，启动器直接失败并提示运行 `npm run build:desktop-ui`，不会隐式降级回 Next。
+Electron 主进程只读 `WECLIO_DESKTOP_AGENT_URL` / `WECLIO_DESKTOP_AGENT_TOKEN_FILE` /
+`WECLIO_DESKTOP_UI_DIR`；缺任何一个都在报错后退 1，不会启动任何后备后端。
+令牌经受限 IPC（`agent-service:config`，仅接受 `weclio://app` 发送方）交给渲染器保存在内存，
+不写入静态资产或 URL。
 
 令牌从 Service 的 stateDir 读取后作为本地开发引导注入 UI 内存；不是成品 Web 认证方案。
 默认共享 `~/.pi/agent`（会话与凭据）；隔离测试设置 `WECLIO_DEV_AGENT_DIR=<绝对路径>`，
 另配 `WECLIO_AGENT_STATE_DIR` / `WECLIO_AGENT_WORKSPACE`。Next dev 输出独立存放，不删除普通 `.next`。
 
 `dev:lan` 仅启动 UI，不启动或公开 Agent；必须显式配置所选 Service 与来源策略。未配置时只显示提示。
-`start` / `start:lan` / `weclio-web` 仅服务已构建 UI，不启动 Agent，并拒绝含旧业务路由或 instrumentation 的编译产物。
-当前 P2 中间态尚未重新构建生产 UI/Service/Runtime，不得打包发布。
+`start` / `start:lan` / `weclio-web` 仅服务已构建的 Next UI，不启动 Agent，并拒绝含旧业务路由或 instrumentation 的编译产物。
+当前 Desktop 安装版链路（内置 Service、打包后的静态资产布局）尚未完成，属于 P4–P6；
+`electron/production.mjs` 仍保留为旧安装版启动路径，但 `main.mjs` 已不再调用它。
+不得把当前分支当作可发布安装包。
 
 ## Checks
 

@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
 // Desktop 静态 UI 的受限协议：weclio://app/... 从静态构建目录读取资产。
@@ -8,22 +8,37 @@ export const APP_HOST = "app";
 export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 export const APP_ENTRY_URL = `${APP_ORIGIN}/index.html`;
 
-// 允许内联样式（组件已用 style 属性）与 blob/worker（编辑器、预览）。
-const APP_CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "media-src 'self' data: blob:",
-  "connect-src 'self' http://127.0.0.1:*",
-  "worker-src 'self' blob:",
-  "frame-src 'self' blob:",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-].join("; ");
+function appCsp(serviceUrl) {
+  let serviceOrigin = "";
+  if (serviceUrl !== undefined) {
+    // 配置只接受 HTTP(S) 裸 origin；拒绝 URL 标准化会掩盖的控制字符及 CSP 注入。
+    if (typeof serviceUrl !== "string" || !/^https?:\/\//.test(serviceUrl) || /[\s;?'"#\\@*]/.test(serviceUrl)) {
+      throw new Error("Service URL must be an HTTP(S) origin.");
+    }
+    const url = new URL(serviceUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password ||
+        url.pathname !== "/" || url.search || url.hash) {
+      throw new Error("Service URL must be an HTTP(S) origin.");
+    }
+    serviceOrigin = ` ${url.origin}`;
+  }
+  // 远程 Markdown 图片保留 Web 行为；API、媒体和预览只授权已选 Service。
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: http: https:",
+    "font-src 'self' data:",
+    `media-src 'self' blob:${serviceOrigin}`,
+    `connect-src 'self'${serviceOrigin}`,
+    "worker-src 'self' blob:",
+    `frame-src 'self' blob:${serviceOrigin}`,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
 
 const MIME_TYPES = new Map(Object.entries({
   ".html": "text/html; charset=utf-8",
@@ -70,7 +85,8 @@ export function resolveAppAsset(rootDir, requestUrl) {
   } catch {
     return null;
   }
-  if (url.protocol !== `${APP_SCHEME}:` || url.hostname !== APP_HOST) return null;
+  if (url.protocol !== `${APP_SCHEME}:` || url.hostname !== APP_HOST ||
+      url.username || url.password || url.port) return null;
 
   let pathname;
   try {
@@ -91,10 +107,10 @@ export function resolveAppAsset(rootDir, requestUrl) {
   return candidate;
 }
 
-export function assetHeaders(filePath) {
+export function assetHeaders(filePath, { serviceUrl } = {}) {
   return {
     "content-type": contentTypeFor(filePath),
-    "content-security-policy": APP_CSP,
+    "content-security-policy": appCsp(serviceUrl),
     "x-content-type-options": "nosniff",
     "cache-control": "no-cache",
   };
@@ -104,15 +120,20 @@ export function assetHeaders(filePath) {
  * 生成 protocol.handle 的处理函数。
  * 只读静态文件：不存在或越界一律 404，不回退到任何服务器。
  */
-export function createAppProtocolHandler(rootDir) {
+export function createAppProtocolHandler(rootDir, { serviceUrl } = {}) {
+  const headers = assetHeaders("index.html", { serviceUrl });
   return async (request) => {
     const filePath = resolveAppAsset(rootDir, request.url);
     if (!filePath) return new Response("Not found", { status: 404 });
     try {
-      const info = await stat(filePath);
+      // 词法路径检查不覆盖 symlink/junction，读取前还要验证真实路径边界。
+      const root = await realpath(rootDir);
+      const target = await realpath(filePath);
+      if (!target.startsWith(root + sep)) return new Response("Not found", { status: 404 });
+      const info = await stat(target);
       if (!info.isFile()) return new Response("Not found", { status: 404 });
-      const body = await readFile(filePath);
-      return new Response(body, { status: 200, headers: assetHeaders(filePath) });
+      const body = await readFile(target);
+      return new Response(body, { status: 200, headers: { ...headers, "content-type": contentTypeFor(filePath) } });
     } catch {
       return new Response("Not found", { status: 404 });
     }

@@ -3,6 +3,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("weclioDesktop", Object.freeze({
+  // 连接信息由主进程持有；静态资产里不保存 Service 地址或凭据。
+  getAgentService: () => ipcRenderer.invoke("agent-service:config"),
   getUpdateState: () => ipcRenderer.invoke("desktop-update:get"),
   onUpdateState: (listener) => {
     const handler = (_event, state) => listener(state);

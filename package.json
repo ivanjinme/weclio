@@ -29,7 +29,7 @@
   ],
   "scripts": {
     "dev": "npm run dev:desktop",
-    "dev:desktop": "node electron/dev.mjs",
+    "dev:desktop": "npm run build:desktop-ui && node electron/dev.mjs",
     "dev:web": "node electron/dev-service-ui.mjs",
     "dev:lan": "next dev -H 0.0.0.0 -p 8888",
     "build:desktop": "node electron/build.mjs",

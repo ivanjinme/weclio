@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,8 @@ const rejected = [
   ["API page", { ...pages, "/api/page": "app/api/page.js" }],
   ["unexpected page", { ...pages, "/other/page": "app/other/page.js" }],
   ["backend output disguised as page", { ...pages, "/page": "app/api/agent/route.js" }],
+  ["backend output disguised as favicon", { ...pages, "/favicon.ico/route": "app/api/agent/route.js" }],
+  ["other metadata route", { ...pages, "/icon/route": "app/icon/route.js" }],
   ["invalid output", { ...pages, "/page": null }],
   ["missing manifest", undefined],
   ["malformed JSON", "{"],
@@ -66,7 +68,7 @@ function runCli(root) {
   `);
   const result = spawnSync(process.execPath, ["--require", preload, path.join(fixtureBin, "pi-web.js"), "--no-open"], {
     encoding: "utf8",
-    env: { ...process.env, PI_WEB_HOSTNAME: "127.0.0.1" },
+    env: { ...process.env, PI_WEB_HOSTNAME: "127.0.0.1", NODE_ENV: "development", WECLIO_DEV_UI_DIST_DIR: "stale-dev-output" },
     timeout: 10000,
   });
   assert.equal(result.error, undefined);
@@ -86,13 +88,16 @@ for (const [label, manifest, hook] of rejected) {
   });
 }
 
-for (const manifest of [pages, { "/page": "app/page.js" }]) {
-  test(`current page-only manifest (${Object.keys(manifest).length} entries) starts CLI`, (t) => {
+for (const manifest of [pages, { "/page": "app/page.js" }, { ...pages, "/favicon.ico/route": "app/favicon.ico/route.js" }]) {
+  test(`current UI-only manifest (${Object.keys(manifest).length} entries) starts CLI`, (t) => {
     const { root, nextDir } = fixture(t, manifest);
     assert.doesNotThrow(() => assertUiOnlyBuild(nextDir));
     const { result, marker } = runCli(root);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(marker), true);
+    const spawned = JSON.parse(readFileSync(marker, "utf8"));
+    assert.equal(spawned.options.env.NODE_ENV, "production");
+    assert.equal(spawned.options.env.WECLIO_DEV_UI_DIST_DIR, undefined);
   });
 }
 

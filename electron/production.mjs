@@ -37,6 +37,7 @@ export async function startProductionServer({ resourcesPath, logsPath, url, onUn
   }  const env = { ...createRuntimeEnvironment(runtime), NODE_ENV: "production", PI_WEB_HOSTNAME: "127.0.0.1" };
   delete env.ELECTRON_RUN_AS_NODE;
   delete env.WECLIO_DESKTOP_UPDATE_IPC;
+  delete env.WECLIO_DEV_UI_DIST_DIR;
   for (const key of Object.keys(env)) {
     if (key === "TURBOPACK" || key === "NEXT_RUNTIME" || key.startsWith("__NEXT_")) delete env[key];
   }
