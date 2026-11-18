@@ -155,6 +155,8 @@ function createMainWindow() {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
+    // 打包后任务栏图标取自 builder.json 内嵌进 exe 的图标；开发态直接用同源 PNG。
+    ...(app.isPackaged ? {} : { icon: fileURLToPath(new URL("../public/brand/app-icon-light-512.png", import.meta.url)) }),
     ...(process.platform === "win32" ? {
       titleBarStyle: "hidden",
       titleBarOverlay: { color: "#f8f7ff", symbolColor: "#1d1e21", height: 40 },

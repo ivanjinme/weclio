@@ -12,6 +12,8 @@ const notoSansMono = Noto_Sans_Mono({
 export const metadata: Metadata = {
   title: "weclio",
   description: "weclio interface for the pi coding agent",
+  // 与应用图标同源：SVG 源优先，app/favicon.ico 保留为旧浏览器回退。
+  icons: { icon: [{ url: "/brand/app-icon-mark.svg", type: "image/svg+xml" }] },
 };
 
 export default function RootLayout({
