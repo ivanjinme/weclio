@@ -94,6 +94,13 @@ import type { ServiceConfig } from "./config";
 import { createResourceTicketSigner, type ResourceTicketResource } from "../resource-ticket";
 
 const MAX_BODY_BYTES = 1024 * 1024;
+// Chromium/Firefox 拒绝的端口；自动选择端口时不能落在这些值上。
+const BROWSER_BLOCKED_PORTS = new Set([1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080]);
+
+export function isBrowserBlockedPort(port: number): boolean {
+  return BROWSER_BLOCKED_PORTS.has(port);
+}
+
 const COMMANDS_ROUTE = /^\/v1\/sessions\/([^/]+)\/commands$/;
 const SESSION_ROUTE = /^\/v1\/sessions\/([^/]+)$/;
 const SESSION_STATE_ROUTE = /^\/v1\/sessions\/([^/]+)\/state$/;
@@ -1027,13 +1034,19 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
     return target;
   }
 
-  await new Promise<void>((resolveListen, rejectListen) => {
+  // 浏览器会拒绝部分端口；自动选端口时必须避开，否则 UI 永远连不上。
+  const listen = (port: number) => new Promise<void>((resolveListen, rejectListen) => {
     server.once("error", rejectListen);
-    server.listen(config.port, config.host, () => {
+    server.listen(port, config.host, () => {
       server.off("error", rejectListen);
       resolveListen();
     });
   });
+  await listen(config.port);
+  for (let attempt = 0; config.port === 0 && isBrowserBlockedPort((server.address() as AddressInfo).port) && attempt < 5; attempt++) {
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    await listen(0);
+  }
   const address = server.address() as AddressInfo;
   const url = `http://${config.host === "localhost" ? "127.0.0.1" : config.host}:${address.port}`;
 

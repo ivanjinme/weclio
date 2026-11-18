@@ -6,6 +6,9 @@
 
 E4（Windows）已完成：同一候选 tarball 安装到空目录后，由系统 Node 启动 Service + Next UI，
 完成浏览器引导、带 CORS 的 `/v1/info`、会话查询、SSE 首事件与干净退出（owner 记录清除、Service 进程消失）。
+独立 `service` 子命令也已从安装后的 tarball 验证：只启动 Service（无 UI/Electron），
+stdin EOF 不会退出，显式 shutdown 行干净停止并清除 owner 记录，硬杀后 OS 互斥端点立即释放可重启。
+Service 自动选择端口时会跳过浏览器拒绝的端口（如 6000/6665-6669），避免 UI 永远连不上。
 Linux 消费安装与独立归档验收随 Linux 环境一起暂缓。
 
 ## 1. 目标与边界
