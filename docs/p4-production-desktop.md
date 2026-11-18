@@ -1,3 +1,5 @@
+> 历史记录：本文记录的 bundled Node/npm 方案已被 `docs/standard-node-execution-plan.md` 取代（Desktop 现用系统 Node.js）。其余 Service 闭包、资源布局与隔离回归结论仍然有效。
+
 # P4：Desktop 生产闭包与内置 Runtime
 
 ## 状态与范围

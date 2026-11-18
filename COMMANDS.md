@@ -25,6 +25,18 @@ Attaches the UI to an already running Service instead of starting one. The Servi
 (`http://127.0.0.1:8888` by default); attach never starts, stops or takes over that Service.
 Only one Weclio Service may write a given Pi profile at a time.
 
+## Release gate (Windows)
+
+```bash
+npm run build:web-service && npm run build     # in isolated staging
+npm pack                                       # tarball is the distribution unit
+npm install --prefix <empty-dir> <tarball> --ignore-scripts --omit=dev
+node <empty-dir>/node_modules/@weclio/web/bin/weclio-web.js --no-open -p 8891
+```
+
+Acceptance means: UI loads, connection bootstrap works, authenticated HTTP and SSE succeed,
+and the owned Service exits cleanly. Do not accept a source-tree run as proof.
+
 ## Checks
 
 ```bash

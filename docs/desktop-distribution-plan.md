@@ -1,3 +1,5 @@
+> 历史记录：bundled Node/npm 已被系统 Node.js 取代，见 `docs/standard-node-execution-plan.md`；其余阶段划分仍然有效。
+
 # Action Plan B — Electron Packaging & Distribution
 
 > **当前发行主线：P1–P4 源码与本机候选产物验证完成，继续 P5 生命周期/更新门禁，再做 P6 真实安装升级与发行。** 依赖 [Plan A](agent-service-refactoring-plan.md)。目标是发新版 Desktop；VM、Web 与 Service 单独部署暂缓，不另开泛化技术债清理支线。

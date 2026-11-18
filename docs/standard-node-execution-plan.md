@@ -1,8 +1,12 @@
 # 标准 Node.js 收敛执行计划
 
-状态：实施中（E1–E3 代码完成，E4 分发验收与 E5 真安装待做）。生产 Web 默认启动链已接通，Windows 隔离生产构建已验证实际页面、认证 HTTP 和 SSE；候选 tarball 已生成，干净环境 npm 安装待验收。Desktop 已改用系统 Node；Windows 的真实 ASAR 解包候选已核对实际子进程路径、主窗口渲染和正常退出，产物不含 Node/npm Runtime。更新交接在关闭窗口后锁定并等待 Service 正常退出；交接和失败重试通过测试，尚未实跑 NSIS 升级。Profile 单写者（OS 互斥端点，先于包初始化）、显式 attach、业务写入统一准入均已实现，
+状态：实施中（E1–E3 代码完成，E4 分发验收与 E5 真安装待做）。生产 Web 默认启动链已接通，Windows 隔离生产构建已验证实际页面、认证 HTTP 和 SSE；候选 tarball 已在空目录完成真实 npm 消费安装与完整运行（bootstrap、CORS、会话、SSE、干净退出）。Desktop 已改用系统 Node；Windows 的真实 ASAR 解包候选已核对实际子进程路径、主窗口渲染和正常退出，产物不含 Node/npm Runtime。更新交接在关闭窗口后锁定并等待 Service 正常退出；交接和失败重试通过测试，尚未实跑 NSIS 升级。Profile 单写者（OS 互斥端点，先于包初始化）、显式 attach、业务写入统一准入均已实现，
 并有真实共存回归：Desktop(ASAR)+系统 Node 拥有 Service，Web attach 完成 bootstrap/CORS/会话/SSE，
 未列出的回环源仍 403，关闭 Web 不影响 Desktop，第二个 managed Service 被拒绝且不创建状态目录。
+
+E4（Windows）已完成：同一候选 tarball 安装到空目录后，由系统 Node 启动 Service + Next UI，
+完成浏览器引导、带 CORS 的 `/v1/info`、会话查询、SSE 首事件与干净退出（owner 记录清除、Service 进程消失）。
+Linux 消费安装与独立归档验收随 Linux 环境一起暂缓。
 
 ## 1. 目标与边界
 
@@ -18,7 +22,7 @@
 
 明确不做：重写 Pi 会话/上下文/持久化语义、切换 Web UI 框架、恢复 Next 业务后端或业务代理、新建多租户/VM 管理平台、引入通用任务系统/凭据数据库、另开长期技术债阶段。
 
-本次第一批认证目标：Desktop Windows x64；Web/独立 Service Windows x64 与 Linux x64。macOS、ARM、musl 不因“代码是 JS”而被宣称已支持。远程基础设施不是本次交付阻塞项；Linux 上无 UI、无 Electron 的独立启动是必要门禁。
+本次认证目标：Desktop Windows x64；Web/独立 Service Windows x64。**Linux 暂缓**（当前没有 Linux 环境，不做未验证的声明）；macOS/ARM/musl 同样不支持声明。远程基础设施不是本次交付阻塞项。
 
 ## 2. 复核发现：必须纠正的遗漏
 
@@ -217,7 +221,7 @@ E0 进展：两项产品边界已确认。Windows 系统 Node 24.16.0 下，Serv
 | --- | --- |
 | 默认 Web | 从 tarball 安装，以与用户 npx 相同的 bin 推断执行；界面、会话、HTTP/SSE、真实 fake-model 工具循环均工作。 |
 | 发布证据 | tarball 文件清单、Service 版本/资源清单、消费者已安装依赖图一致；无开发 Token、真实凭据或构建缓存。 |
-| 独立性 | Linux/Windows 系统 Node；无 Electron、Next、UI 和源码仍可运行独立 Service 归档；stdin EOF 不关闭 standalone。 |
+| 独立性 | Windows 系统 Node（Linux 暂缓）；无 Electron、Next、UI 和源码仍可运行独立 Service 归档；stdin EOF 不关闭 standalone。 |
 | Node | 现有最低版本与所声明支持线；找不到、无执行权限、错误 Runtime、PATH 别名与多版本。 |
 | npm/工具 | npm/npx 的实际执行及本地 fixture 插件安装/更新/卸载；Git/Bash 与搜索工具存在/缺失/离线；没有 paid prompt。 |
 | 业务回归 | SSE 断线重连、Last-Event-ID、持久化/重启、fork/context、Blob 图片、Ticket PDF/音频/下载、Range、DOCX。 |
