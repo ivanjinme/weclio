@@ -4,7 +4,7 @@
 
 ```text
 
-    Desktop (Electron + React)           Web (React)
+       Desktop (Electron)                Web (Browser)
                 │                             │
                 └─────────────┬───────────────┘
                               │ HTTP ↓ / SSE ↑
@@ -28,15 +28,14 @@
 Deployment (future direction — only Local ships today; Remote and Scale are on the way):
   Local  → Agent Service on user's machine
   Remote → Dedicated VM / container / sandbox per user
-  Scale  → Multiple isolated runtime environments,
-           each with its own Agent Service
+  Scale  → Multiple isolated runtime environments, each with its own Agent Service
 ```
 
-- Desktop loads a Vite static build through the `weclio://app` protocol and talks HTTP/SSE to the Service directly; it has no UI server process and no loopback HTTP page trust.
-- AgentRuntime is explicitly owned by the Service host, not a Next/HMR singleton. UI requires an explicitly selected Service; the Desktop host supplies that selection through a restricted IPC bridge.
-- Pi owns agent execution, session persistence/tree semantics, and model-context construction. Do not reimplement them.
-- Agent Service 以标准 Node.js 为唯一运行环境：宿主可以启停它，它不依赖宿主；同一产物可独立运行。
-- 同一份 Pi 数据只由一个运行中的 Service 拥有；其他 UI 只能作为 HTTP/SSE 客户端接入，不另起运行时，也没有进程内捷径或代理。
+- Desktop 与 Web 都只是 UI：连接已选定的 Agent Service，走 HTTP/SSE，不加载 Pi SDK，不另起运行时，也没有进程内捷径或代理。Desktop 用 `weclio://app` 加载 Vite 静态构建，因此没有 UI 服务进程，页面也不经 loopback HTTP 提供。
+- UI 不猜测默认地址，也不自动发现 Service。宿主可以启动自己的 Service，但不会自动发现或接管其他实例。宿主须明确提供地址与凭据，缺失则报错；Desktop 通过受限 IPC 提供。AgentRuntime 由 Agent Service 进程创建并持有，不是 UI 进程或框架热更新里的单例。
+- Pi 拥有 agent 执行、会话持久化与树语义、模型上下文构造；不要重新实现。
+- Agent Service 只跑标准 Node.js。宿主可管理自己启动的 Service，但同一产物也可独立运行。
+- 同一份 Pi 数据同一时刻只允许一个 Agent Service 写入。
 
 ## Current Code Entrypoints
 
