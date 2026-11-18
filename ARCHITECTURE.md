@@ -36,16 +36,16 @@ Deployment (future direction — only Local ships today; Remote and Scale are on
 - AgentRuntime is explicitly owned by the Service host, not a Next/HMR singleton. UI requires an explicitly selected Service; the Desktop host supplies that selection through a restricted IPC bridge.
 - Pi owns agent execution, session persistence/tree semantics, and model-context construction. Do not reimplement them.
 
-## Invariants
+## 不变量
 
-- The Service runs on standard Node.js only: no Electron/Next API, installer path, or bundled runtime in its code, build or deployment.
-- A host may start and stop the Service; the Service never depends on the host. The same artifact runs standalone.
-- One writer per canonical Pi profile and state directory, held by an OS mutex taken before package seeding. Extra clients attach over HTTP and never share the runtime.
-- Every state-changing route passes one admission gate; reads stay available during maintenance.
-- Quit order: renderer veto wins → close accepted → lock → Service exit confirmed → installer handoff.
-- The UI never guesses a backend: the connection is explicit, injected at runtime, never baked into assets, never falling back to `/api` or same-origin.
-- Protocol version is the compatibility contract and is verified before the UI mounts.
-- The tested artifact is the shipped artifact: acceptance runs against the installed tarball/installer, not the source tree.
+- Service 只运行在标准 Node.js 上：代码、构建、部署都不依赖 Electron/Next API、安装路径或自带 Runtime。
+- 宿主可以启停 Service，Service 不依赖宿主；同一产物能独立运行。
+- 每个规范化 Pi profile 与 state 目录只有一个写者，由 OS 互斥在初始化内置包之前取得；其他客户端只通过 HTTP 连接，不共享运行时。
+- 所有改变状态的请求走同一个准入闸门；维护期间只读仍可用。
+- 退出顺序：渲染器否决优先 → 窗口接受关闭 → 加锁 → 确认 Service 退出 → 交给安装器。
+- UI 不猜后端：连接显式、运行时注入、不写进产物，不回退 `/api` 或同源。
+- 协议版本是兼容契约，UI 挂载前必须校验。
+- 被测产物就是发布产物：验收针对安装后的 tarball/安装器，而不是源码树。
 
 ## Current Code Entrypoints
 
