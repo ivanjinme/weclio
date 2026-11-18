@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { copyProductionDependency, shouldCopyDependencyFile } from "./package-files.mjs";
+import { copyProductionDependency, isForbiddenDependencyFile, shouldCopyDependencyFile } from "./package-files.mjs";
 
 test("only known source-map suffixes are excluded", () => {
   for (const name of ["index.js.map", "index.cjs.map", "index.mjs.map", "index.jsx.map", "index.ts.map", "index.cts.map", "index.mts.map", "index.tsx.map", "index.d.ts.map", "index.d.mts.map", "styles.css.map"]) {
@@ -85,4 +85,33 @@ test("production copy omits source maps while preserving resource directories an
   for (const name of omitted) {
     assert.equal((await stat(join(source, name))).isFile(), true, name);
   }
+});
+
+test("environment files are recognised as secrets regardless of suffix casing", () => {
+  for (const name of [".env", ".env.local", ".env.production", ".ENV", ".Env.test"]) {
+    assert.equal(isForbiddenDependencyFile(name), true, name);
+  }
+  for (const name of ["env", "env.js", ".environment", "dotenv", "package.json"]) {
+    assert.equal(isForbiddenDependencyFile(name), false, name);
+  }
+});
+
+test("a dependency closure containing secrets or links fails instead of shipping them", async (t) => {
+  const temporary = await mkdtemp(join(tmpdir(), "weclio-package-guard-"));
+  t.after(() => rm(temporary, { recursive: true, force: true, maxRetries: 3 }));
+  const secret = join(temporary, "secret.env");
+  await writeFile(secret, "API_KEY=should-never-ship\n");
+  for (const name of [".env", ".env.local"]) {
+    const source = join(temporary, `pkg-${name}`);
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "index.js"), "export {};\n");
+    await writeFile(join(source, name), "API_KEY=should-never-ship\n");
+    await assert.rejects(copyProductionDependency(source, join(temporary, `copied-${name}`)), /环境变量文件/);
+  }
+  const linked = join(temporary, "pkg-link");
+  await mkdir(linked, { recursive: true });
+  await writeFile(join(linked, "index.js"), "export {};\n");
+  // Windows 上目录 junction 同样属于链接，且无需管理员权限。
+  await symlink(secret, join(linked, process.platform === "win32" ? "creds" : "creds.js"), process.platform === "win32" ? "junction" : "file");
+  await assert.rejects(copyProductionDependency(linked, join(temporary, "copied-link")), /符号链接/);
 });
