@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { AgentRuntime } from "../../rpc-manager";
 import { configureHttpDispatcher } from "../../http-dispatcher";
 import { PROTOCOL_VERSION } from "../protocol/version";
-import { resolveServiceConfig, type ServiceConfig } from "./config";
+import { resolveServiceConfig, resolveStateDir, type ServiceConfig } from "./config";
+import { acquireServiceOwnership } from "./ownership";
 import { startAgentServiceHost, type AgentServiceHost } from "./host";
 import { handleMaintenanceLine } from "./maintenance-control";
 
@@ -44,94 +46,70 @@ function readJson<T>(path: string): T | undefined {
   }
 }
 
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-/** 同一状态目录只允许一个写入者；残留记录只有在属主进程确实不存在时才被接管。 */
-function claimOwner(stateDir: string, instanceId: string): () => void {
-  const path = join(stateDir, OWNER_FILE);
-  const existing = readJson<OwnerRecord>(path);
-  if (existing && existing.pid !== process.pid && processAlive(existing.pid)) {
-    throw new Error(`Another agent service already owns ${stateDir} (pid ${existing.pid})`);
-  }
-  writeFileSync(path, JSON.stringify({ pid: process.pid, instanceId } satisfies OwnerRecord));
-  return () => {
-    const current = readJson<OwnerRecord>(path);
-    if (current?.instanceId === instanceId) rmSync(path, { force: true });
-  };
-}
-
 function resolveServiceId(stateDir: string): string {
   const path = join(stateDir, IDENTITY_FILE);
   const existing = readJson<Partial<ServiceIdentity>>(path);
   return typeof existing?.serviceId === "string" && existing.serviceId ? existing.serviceId : randomUUID();
 }
 
-export async function startAgentService(
-  options: { env?: NodeJS.ProcessEnv; appVersion?: string } = {},
-): Promise<StartedAgentService> {
-  const env = options.env ?? process.env;
-  const config = resolveServiceConfig(env);
-  configureHttpDispatcher();
-  mkdirSync(config.stateDir, { recursive: true });
-
+async function startAgentService(initialize?: () => Promise<unknown>): Promise<StartedAgentService> {
+  const stateDir = resolveStateDir();
+  const release = await acquireServiceOwnership([getAgentDir(), stateDir]);
   const instanceId = randomUUID();
-  const releaseOwner = claimOwner(config.stateDir, instanceId);
-  const serviceId = resolveServiceId(config.stateDir);
-  const runtime = new AgentRuntime();
-  let host: AgentServiceHost;
+  const ownerPath = join(stateDir, OWNER_FILE);
+  let published = false;
+  async function releaseOwner() {
+    try {
+      if (published) rmSync(ownerPath, { force: true });
+    } finally { await release(); }
+  }
+  let host: AgentServiceHost | undefined;
   try {
-    host = await startAgentServiceHost({
-      runtime,
-      config,
-      serviceId,
-      instanceId,
-      appVersion: options.appVersion ?? env.WECLIO_AGENT_VERSION ?? "0.0.0-dev",
+    const config = resolveServiceConfig();
+    await initialize?.();
+    configureHttpDispatcher();
+    const serviceId = resolveServiceId(stateDir);
+    const runtime = new AgentRuntime();
+    const started = host = await startAgentServiceHost({
+      runtime, config, serviceId, instanceId,
+      appVersion: process.env.WECLIO_AGENT_VERSION ?? "0.0.0-dev",
     });
+    const identity: ServiceIdentity = {
+      version: 1, serviceId, instanceId, protocolVersion: PROTOCOL_VERSION, pid: process.pid, url: started.url,
+    };
+    writeFileSync(ownerPath, JSON.stringify({ pid: process.pid, instanceId } satisfies OwnerRecord));
+    published = true;
+    writeFileSync(join(stateDir, IDENTITY_FILE), JSON.stringify(identity, null, 2) + "\n");
+    let closing: Promise<{ timedOut: boolean }> | undefined;
+    return {
+      config, serviceId, instanceId, url: started.url, runtime,
+      close() {
+        return closing ??= (async () => {
+          await started.close();
+          const result = await runtime.drain(config.drainTimeoutMs);
+          // 超时后仍可能有写入；让进程退出释放 OS 锁。
+          if (!result.timedOut) await releaseOwner();
+          return result;
+        })();
+      },
+    };
   } catch (error) {
-    releaseOwner();
+    try { await host?.close(); }
+    finally { await releaseOwner(); }
     throw error;
   }
-
-  const identity: ServiceIdentity = {
-    version: 1,
-    serviceId,
-    instanceId,
-    protocolVersion: PROTOCOL_VERSION,
-    pid: process.pid,
-    url: host.url,
-  };
-  writeFileSync(join(config.stateDir, IDENTITY_FILE), JSON.stringify(identity, null, 2) + "\n");
-
-  let closed = false;
-  return {
-    config,
-    serviceId,
-    instanceId,
-    url: host.url,
-    runtime,
-    async close() {
-      if (closed) return { timedOut: false };
-      closed = true;
-      try {
-        await host.close();
-        return await runtime.drain(config.drainTimeoutMs);
-      } finally {
-        releaseOwner();
-      }
-    },
-  };
 }
 
 /** 独立进程入口：就绪/关闭各输出一行机器可读事件，生命周期不依赖客户端连接。 */
-export async function main(): Promise<void> {
-  const service = await startAgentService();
+export async function main(initialize?: () => Promise<unknown>): Promise<void> {
+  let service: StartedAgentService;
+  try {
+    service = await startAgentService(initialize);
+  } catch (error) {
+    // 所有权冲突等启动失败必须是一行可操作信息，而不是崩溃堆栈。
+    console.error(`[agent-service] ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
   process.stdout.write(`WECLIO_AGENT_READY ${JSON.stringify({
     url: service.url,
     serviceId: service.serviceId,

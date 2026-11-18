@@ -38,7 +38,7 @@ class FakeWindow extends EventEmitter {
   }
 }
 
-function fixture({ packaged = true, canInstall = true, mode, inspect = "ready", lock = "ready", verify, install, missingGate = false } = {}) {
+function fixture({ packaged = true, canInstall = true, mode, inspect = "ready", lock = "ready", verify, stop, install, missingGate = false } = {}) {
   const events = [];
   const dialogs = [];
   const logs = [];
@@ -75,6 +75,7 @@ function fixture({ packaged = true, canInstall = true, mode, inspect = "ready", 
     getService: () => service,
     getWindow: () => currentWindow,
     getGate: () => missingGate ? undefined : gate,
+    async stopService() { events.push("stop"); await stop?.(); },
     dialog: {
       async showMessageBox(...args) {
         const options = args.at(-1);
@@ -115,7 +116,7 @@ function assertPreserved(h) {
 test("production ready handoff uses only the injected stock updater integration point", async () => {
   const h = fixture();
   await h.installer.restart("en");
-  assert.deepEqual(h.events, ["canInstall", "inspect", "lock", "verify", "close", "closed", "subscribe", "quitAndInstall"]);
+  assert.deepEqual(h.events, ["canInstall", "inspect", "verify", "close", "closed", "lock", "stop", "subscribe", "quitAndInstall"]);
   assert.deepEqual(h.dialogs, [], "explicit restart click must not ask for confirmation again");
   assert.equal(h.installed, 1);
   assert.equal(h.installer.isClosing(), true);
@@ -149,11 +150,20 @@ test("busy inspection warns without locking, closing, or polling", async () => {
   assert.equal(h.installer.isClosing(), false);
 });
 
-test("tasks becoming busy after inspection release the lock and never verify or close", async () => {
+test("work admitted before the window closed restores the UI without stopping or installing", async () => {
   const h = fixture({ lock: "busy" });
   await h.installer.restart("en");
-  assert.deepEqual(h.events, ["canInstall", "inspect", "lock", "unlock", "dialog:warning"]);
-  assertPreserved(h);
+  assert.deepEqual(h.events, ["canInstall", "inspect", "verify", "close", "closed", "lock", "restore", "dialog:warning"]);
+  assert.equal(h.installed, 0);
+  assert.equal(h.currentWindow.isDestroyed(), false);
+});
+
+test("unconfirmed Service exit refuses installer handoff", async () => {
+  const h = fixture({ stop: async () => { throw new Error("Drain failed"); } });
+  await h.installer.restart("en");
+  assert.equal(h.installed, 0);
+  assert.equal(h.restored, 1);
+  assert.equal(h.dialogs.at(-1).type, "error");
 });
 
 test("Chinese restart click also hands off without a second confirmation", async () => {
@@ -161,7 +171,7 @@ test("Chinese restart click also hands off without a second confirmation", async
   await h.installer.restart("zh-CN");
   assert.deepEqual(h.dialogs, []);
   assert.equal(h.installed, 1);
-  assert.ok(h.events.indexOf("lock") < h.events.indexOf("verify"));
+  assert.ok(h.events.indexOf("closed") < h.events.indexOf("lock"));
   assert.ok(h.events.indexOf("verify") < h.events.indexOf("close"));
   assert.ok(h.events.indexOf("closed") < h.events.indexOf("quitAndInstall"));
   h.installer.dispose();
@@ -175,11 +185,11 @@ for (const mode of ["veto", "prevented"]) {
     assertWindowListenersClean(window);
   });
 
-  test(`${mode} close preserves the original window and releases the gate`, async () => {
+  test(`${mode} close preserves the original window without acquiring the gate`, async () => {
     const h = fixture({ mode });
     await h.installer.restart("en");
     assertPreserved(h);
-    assert.equal(h.events.filter((event) => event === "unlock").length, 1);
+    assert.equal(h.events.includes("lock"), false);
     assert.equal(h.events.includes("subscribe"), false);
     assert.equal(h.dialogs.at(-1).type, "info");
     assert.equal(h.installer.isClosing(), false);
@@ -189,7 +199,7 @@ for (const mode of ["veto", "prevented"]) {
 
 for (const locale of ["en", "zh-CN"]) {
   for (const kind of ["synchronous", "asynchronous"]) {
-    test(`${kind} install error restores a window, unlocks, and reports ${locale} error`, async () => {
+    test(`${kind} install error restores a window and reports ${locale} error`, async () => {
       const error = new Error("Stock updater rejected install");
       const h = fixture({ install: kind === "synchronous" ? () => { throw error; } : undefined });
       await h.installer.restart(locale);
@@ -202,7 +212,7 @@ for (const locale of ["en", "zh-CN"]) {
       assert.equal(h.restored, 1);
       assert.notEqual(h.currentWindow, h.window);
       assert.equal(h.currentWindow.isDestroyed(), false);
-      assert.equal(h.events.filter((event) => event === "unlock").length, 1);
+      assert.equal(h.events.includes("unlock"), false, "the old Service is already gone");
       assert.equal(h.events.filter((event) => event === "unsubscribe").length, 1);
       assert.equal(h.dialogs.at(-1).type, "error");
       assert.equal(h.dialogs.at(-1).message, locale === "zh-CN" ? "无法安装更新，请稍后重试。" : "The update could not be started. Please try again.");
@@ -215,24 +225,25 @@ for (const locale of ["en", "zh-CN"]) {
 
 for (const action of ["inspect", "lock"]) {
   for (const reason of ["Malformed desktop update gate reply", "Desktop update gate request timed out"]) {
-    test(`${action} rejecting with ${reason} fails closed without closing the window`, async () => {
+    test(`${action} rejecting with ${reason} fails closed`, async () => {
       const h = fixture({ [action]: async () => { throw new Error(reason); } });
       await h.installer.restart("en");
-      assertPreserved(h);
-      assert.equal(h.events.includes("verify"), false);
-      assert.equal(h.events.includes("close"), false);
+      assert.equal(h.installed, 0);
+      assert.equal(h.currentWindow.isDestroyed(), false);
+      assert.equal(h.events.includes("verify"), action === "lock");
+      assert.equal(h.events.includes("close"), action === "lock");
       assert.equal(h.events.filter((event) => event === "unlock").length, action === "lock" ? 1 : 0);
       assert.equal(h.dialogs.at(-1).type, "error");
     });
   }
 }
 
-test("failed verification preserves the window and releases the gate", async () => {
+test("failed verification preserves the window without locking", async () => {
   const h = fixture({ verify: async () => { throw new Error("Invalid signed artifact"); } });
   await h.installer.restart("en");
   assertPreserved(h);
   assert.equal(h.events.includes("close"), false);
-  assert.equal(h.events.filter((event) => event === "unlock").length, 1);
+  assert.equal(h.events.includes("lock"), false);
   assert.equal(h.dialogs.at(-1).type, "error");
 });
 
@@ -263,9 +274,6 @@ test("repeat clicks are serialized during inspection, locking, verification, clo
   await h.inspectStarted.promise;
   await h.installer.restart("zh-CN");
   inspect.resolve("ready");
-  await h.lockStarted.promise;
-  await h.installer.restart("zh-CN");
-  lock.resolve("ready");
   await h.verifyStarted.promise;
   await h.installer.restart("zh-CN");
   verify.resolve();
@@ -274,6 +282,9 @@ test("repeat clicks are serialized during inspection, locking, verification, clo
   await nextTurn();
   assert.equal(h.installed, 0);
   h.window.acceptClose();
+  await h.lockStarted.promise;
+  await h.installer.restart("zh-CN");
+  lock.resolve("ready");
   await restart;
   await h.installer.restart("zh-CN");
   assert.equal(h.installed, 1);
@@ -297,7 +308,7 @@ test("dispose during inspection cancels without acquiring a lock or installing",
   assert.deepEqual(h.events, ["canInstall", "inspect"]);
 });
 
-test("dispose during verification cancels installation and releases the acquired gate", async () => {
+test("dispose during verification cancels installation before acquiring the gate", async () => {
   const verify = deferred();
   const h = fixture({ verify: () => verify.promise });
   const restart = h.installer.restart("en");
@@ -308,7 +319,7 @@ test("dispose during verification cancels installation and releases the acquired
   await h.installer.restart("en");
   assertPreserved(h);
   assert.equal(h.events.includes("close"), false);
-  assert.equal(h.events.filter((event) => event === "unlock").length, 1);
+  assert.equal(h.events.includes("lock"), false);
 });
 
 test("closeUpdateWindow rejects a thrown close error and cleans all listeners", async () => {
@@ -349,7 +360,7 @@ test("thrown window close is recovered as an error, not reported as a user cance
   await h.installer.restart("en");
   assertPreserved(h);
   assertWindowListenersClean(h.window);
-  assert.equal(h.events.filter((event) => event === "unlock").length, 1);
+  assert.equal(h.events.includes("lock"), false);
   assert.equal(h.restored, 1);
   assert.equal(h.dialogs.at(-1).type, "error");
   assert.ok(h.logs.some((args) => args.includes("Window close failed")));

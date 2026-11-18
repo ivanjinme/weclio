@@ -352,6 +352,21 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
       }
     }
 
+    // 统一覆盖文件、配置、认证和会话写入；只读流不持有维护门禁。
+    const readOnlyPost = ["/v1/resources/tickets", "/v1/workspaces/validate", "/v1/sessions/titles"].includes(url.pathname);
+    const writes = business && ((["POST", "PUT", "PATCH", "DELETE"].includes(method) && !(method === "POST" && readOnlyPost)) ||
+      (method === "GET" && /^\/v1\/provider-auth\/login\/[^/]+$/.test(url.pathname)));
+    if (writes && runtime.admission.isLocked()) {
+      sendError(res, 503, "command_failed", "Service maintenance in progress; please try again later", requestId);
+      return;
+    }
+    const release = writes ? runtime.reserveTask() : undefined;
+    try { await handleBusiness(req, res, requestId, method, url); }
+    finally { release?.(); }
+  }
+
+  async function handleBusiness(req: IncomingMessage, res: ServerResponse, requestId: string, method: string, url: URL): Promise<void> {
+    const ticketContent = url.pathname === "/v1/resources/content" && (method === "GET" || method === "HEAD");
     if (method === "POST" && url.pathname === "/v1/resources/tickets") {
       let body: unknown;
       try { body = JSON.parse(await readBody(req)); } catch (error) {
@@ -656,7 +671,7 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
         });
         const finish = () => { try { res.end(); } catch { /* 已结束 */ } };
         res.on("close", () => handle.abort());
-        void handle.done.finally(finish);
+        await handle.done.finally(finish);
         return;
       }
     }

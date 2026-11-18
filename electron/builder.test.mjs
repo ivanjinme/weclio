@@ -35,7 +35,7 @@ test("installer updater packages only its runtime modules, not obsolete applicat
   assert.deepEqual(config.files, [
     "electron/main.mjs", "lib/startup-splash.mjs", "electron/navigation.mjs", "electron/protocol.mjs", "electron/preload.cjs",
     "electron/updates.mjs", "electron/update-signature.mjs", "electron/update-install.mjs",
-    "electron/local-service.mjs", "electron/service-control.mjs", "electron/node-runtime.mjs", "lib/agent/protocol/version-value.mjs",
+    "electron/local-service.mjs", "electron/service-control.mjs", "electron/system-node.mjs", "bin/node-version.js", "lib/agent/protocol/version-value.mjs",
     "electron/runtime.mjs", "electron/toolsets.mjs", "LICENSE", "!node_modules/**/*",
   ]);
   assert.deepEqual(config.extraResources.find((entry) => entry.from === "resources"), { from: "resources", to: ".", filter: ["desktop-update.json"] });
@@ -63,7 +63,7 @@ test("bootstrap installer ships a generated toolset descriptor separately from t
 });
 
 test("installer has no obsolete shell descriptor or business package resources", () => {
-  assert.deepEqual(config.extraResources.map((entry) => entry.to), [".", "ui", "service", "service/node_modules", "host", "host/node_modules", "desktop-toolset.json", "runtime/win-x64", "runtime/win-x64/node/node_modules"]);
+  assert.deepEqual(config.extraResources.map((entry) => entry.to), [".", "ui", "service", "service/node_modules", "host", "host/node_modules", "desktop-toolset.json", "runtime/win-x64"]);
 });
 
 test("production updater cache matches the installer cache instead of the development fallback", async () => {
@@ -79,12 +79,12 @@ test("desktop metadata supplies the branded Windows shortcut description", () =>
   assert.equal(config.extraMetadata.description, "Weclio - Build an AI Scientist");
 });
 
-test("Service and complete Node/npm Runtime stay outside asar; no system Node installer or Next server", () => {
+test("Service and tools stay outside asar; no Node/npm Runtime or Next server", () => {
   assert.ok(config.files.includes("electron/local-service.mjs"));
   assert.ok(config.files.includes("!node_modules/**/*"));
   assert.ok(config.extraResources.find((entry) => entry.to === "service").filter.includes("electron/packages.mjs"));
-  assert.deepEqual(config.extraResources.find((entry) => entry.to === "runtime/win-x64").filter, ["tools/**/*", "node/**/*", "!node/node_modules/**/*"]);
-  assert.ok(config.extraResources.some((entry) => entry.to === "runtime/win-x64/node/node_modules"));
+  assert.deepEqual(config.extraResources.find((entry) => entry.to === "runtime/win-x64").filter, ["tools/**/*"]);
+  assert.ok(!config.extraResources.some((entry) => /runtime\/win-x64\/node/.test(entry.to)));
   assert.equal(config.extraResources.some((entry) => entry.to.startsWith("server")), false);
   assert.equal(config.npmRebuild, false);
   assert.equal(config.nsis.deleteAppDataOnUninstall, false);

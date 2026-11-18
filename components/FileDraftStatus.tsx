@@ -3,6 +3,7 @@ import { useEffect, useSyncExternalStore, type ReactElement } from "react";
 import type { FileDraftCoordinator } from "@/lib/file-draft";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileName } from "@/lib/file-paths";
+import { hasChatDrafts } from "@/lib/draft-store";
 
 interface Props {
   coordinator: FileDraftCoordinator;
@@ -14,7 +15,7 @@ export function FileDraftStatus({ coordinator, onOpen }: Props): ReactElement | 
   const { t } = useI18n();
   useEffect(() => {
     function warn(event: BeforeUnloadEvent): void {
-      if (!coordinator.getProblems().length) return;
+      if (!coordinator.getProblems().length && !hasChatDrafts()) return;
       event.preventDefault();
       event.returnValue = "";
     }

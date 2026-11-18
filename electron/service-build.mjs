@@ -125,7 +125,7 @@ export async function buildServiceArtifact({ root = ROOT, destination }) {
     name: "@weclio/agent-service", private: true, type: "module", version: metadata.version,
     engines: metadata.engines, dependencies: closure.direct,
   }, null, 2) + "\n");
-  await writeFile(join(destination, "entry.mjs"), `import { dirname } from "node:path";\nimport { fileURLToPath } from "node:url";\nimport { initializeDesktopPackages } from "./electron/packages.mjs";\nimport { main } from "./lib/agent/service/entry.js";\nprocess.env.WECLIO_AGENT_VERSION ??= ${JSON.stringify(metadata.version)};\nawait initializeDesktopPackages(dirname(fileURLToPath(import.meta.url)));\nawait main();\n`);
+  await writeFile(join(destination, "entry.mjs"), `import { dirname } from "node:path";\nimport { fileURLToPath } from "node:url";\nimport { initializeDesktopPackages } from "./electron/packages.mjs";\nimport { main } from "./lib/agent/service/entry.js";\nprocess.env.WECLIO_AGENT_VERSION ??= ${JSON.stringify(metadata.version)};\nawait main(() => initializeDesktopPackages(dirname(fileURLToPath(import.meta.url))));\n`);
   const manifest = {
     schema: 1, version: metadata.version,
     sourceLockSha256: createHash("sha256").update(readFileSync(join(root, "package-lock.json"))).digest("hex"),

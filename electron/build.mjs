@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { buildHostArtifact, buildServiceArtifact } from "./service-build.mjs";
-import { prepareNodeRuntime } from "./node-runtime.mjs";
 import { createToolsetManifest } from "./toolsets.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -16,7 +15,6 @@ try {
   for (const file of ["tools/rg.exe", "tools/fd.exe"]) {
     if (!existsSync(join(runtime, file))) throw new Error(`请先准备 resources/runtime/win-x64/${file}`);
   }
-  await prepareNodeRuntime({ destination: join(runtime, "node"), cacheDir: join(root, "build/runtime-downloads") });
   await mkdir(output, { recursive: true });
   // 只替换本脚本的候选资源；不碰 dev 的静态 UI、Next 输出、已有 installer 或用户数据。
   for (const name of ["service", "host", "ui"]) await rm(join(output, name), { recursive: true, force: true, maxRetries: 3 });
@@ -25,7 +23,7 @@ try {
   await build({ configFile: join(root, "vite.config.ts"), build: { outDir: join(output, "ui"), emptyOutDir: true } });
   await cp(join(root, "LICENSE"), join(output, "host/LICENSE"));
   await writeFile(join(output, "toolset.json"), JSON.stringify(await createToolsetManifest(runtime)) + "\n");
-  console.log(`[desktop] 静态 UI + Service (${service.packages.length} runtime packages) + Host + bundled Node/npm 准备完成。`);
+  console.log(`[desktop] 静态 UI + Service (${service.packages.length} runtime packages) + Host 准备完成（使用系统 Node.js）。`);
 } catch (error) {
   console.error(`[desktop] ${error.message}`);
   process.exitCode = 1;

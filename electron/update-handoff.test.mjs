@@ -37,11 +37,12 @@ for (const fail of [false, true]) {
       quitRequests++;
       assert.equal(closeFinished, true, "stock updater must not quit before the window closes");
       // 与 main.mjs 的 before-quit 拦截保持相同的实际调用顺序。
-      if (!installer.isRecovering()) { stopped++; installer.dispose(); }
+      if (!installer.isRecovering()) installer.dispose();
     } };
     const stock = {
       _logger: { info() {} }, app,
       install() {
+        assert.equal(stopped, 1, "Service exited before the installer is launched");
         if (fail) process.nextTick(() => errorListener(new Error("Installer spawn failed")));
         return true;
       },
@@ -54,27 +55,28 @@ for (const fail of [false, true]) {
     };
     const installer = createUpdateInstaller({
       app, getService: () => service, getWindow: () => window,
-      getGate: () => ({ inspect: async () => "ready", lock: async () => "ready", unlock: () => released }),
+      getGate: () => ({ inspect: async () => "ready", lock: async () => "ready", unlock: async () => {} }),
+      stopService: async () => { stopped++; },
       dialog: { async showMessageBox(...args) {
         const options = args.at(-1);
         if (options.type === "error") errorShown();
         assert.notEqual(options.type, "question", "restart click must not require another confirmation");
         return { response: 0 };
       } },
-      restoreWindow: async () => { restored++; }, log() {},
+      restoreWindow: async () => { await released; restored++; }, log() {},
     });
     await installer.restart("en");
     await nextTurn();
     assert.equal(quitRequests, 1, "exercise the real upstream setImmediate quit");
     if (fail) {
       assert.equal(installer.isRecovering(), true);
-      assert.equal(stopped, 0, "a launch error must not stop the server");
-      assert.equal(restored, 0, "simulate a still-pending unlock acknowledgement");
+      assert.equal(stopped, 1, "the original Service already stopped");
+      assert.equal(restored, 0, "simulate a still-pending Service restart");
       release();
       await shown;
       await nextTurn();
       assert.equal(restored, 1);
-      assert.equal(stopped, 0);
+      assert.equal(stopped, 1);
       assert.equal(installer.isRecovering(), false);
       installer.dispose();
     } else {

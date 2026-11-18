@@ -54,8 +54,12 @@ function resolvePort(value: string | undefined): number {
   return port;
 }
 
+export function resolveStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return absolutePath(env.WECLIO_AGENT_STATE_DIR ?? join(homedir(), ".weclio", "agent-service"), "WECLIO_AGENT_STATE_DIR");
+}
+
 export function resolveServiceConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig {
-  const stateDir = absolutePath(env.WECLIO_AGENT_STATE_DIR ?? join(homedir(), ".weclio", "agent-service"), "WECLIO_AGENT_STATE_DIR");
+  const stateDir = resolveStateDir(env);
   const workspace = absolutePath(env.WECLIO_AGENT_WORKSPACE ?? getDefaultWorkspacePath(env.WECLIO_DEFAULT_CWD ?? ""), "WECLIO_AGENT_WORKSPACE");
   const host = env.WECLIO_AGENT_HOST ?? "127.0.0.1";
   // Remote 是延期阶段；先把地址限制在回环，避免误暴露 shell 能力。

@@ -4,16 +4,16 @@ import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { createServiceRuntimeEnvironment } from "./runtime.mjs";
 
 const artifact = process.env.WECLIO_SERVICE_ARTIFACT;
-const runtime = process.env.WECLIO_NODE_RUNTIME;
+const node = process.execPath;
 const wait = (ms) => new Promise((resolve_) => setTimeout(resolve_, ms));
 
-test("production closure outside the repository runs a real tool loop and TS extension with bundled Node", {
-  skip: !artifact || !runtime, timeout: 150_000,
+test("production closure outside the repository runs a real tool loop and TS extension with system Node", {
+  skip: !artifact, timeout: 150_000,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "weclio P4 中文-"));
   let child;
@@ -26,7 +26,7 @@ test("production closure outside the repository runs a real tool loop and TS ext
       if (child?.pid && child.exitCode === null) {
         child.stdin.write("shutdown\n");
         await Promise.race([exited, wait(8000)]);
-        if (child.exitCode === null) await promisify(execFile)(join(process.env.SystemRoot, "System32/taskkill.exe"), ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true });
+        if (child.exitCode === null && child.signalCode === null) child.kill();
         await exited;
       }
     } finally {
@@ -36,10 +36,10 @@ test("production closure outside the repository runs a real tool loop and TS ext
     }
   });
   const serviceDir = join(root, "service");
-  const nodeDir = join(root, "runtime");
+  const nodeDir = dirname(node);
   const agentDir = join(root, "home/.pi/agent");
   const workspace = join(root, "workspace");
-  await Promise.all([cp(resolve(artifact), serviceDir, { recursive: true }), cp(resolve(runtime), nodeDir, { recursive: true }), mkdir(agentDir, { recursive: true }), mkdir(workspace)]);
+  await Promise.all([cp(resolve(artifact), serviceDir, { recursive: true }), mkdir(agentDir, { recursive: true }), mkdir(workspace)]);
   let requests = 0;
   let probeCalls = 0;
   const operations = [
@@ -78,12 +78,12 @@ test("production closure outside the repository runs a real tool loop and TS ext
   await writeFile(join(extension, "index.ts"), `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";\nimport { probe } from "p4-extra";\nexport default (pi: ExtensionAPI) => { pi.registerTool({ name: "p4_probe", label: "P4 probe", description: "Offline production closure probe", parameters: { type: "object", properties: {} }, async execute() { return { content: [{ type: "text", text: probe() }], details: {} }; } }); };`);
   const home = join(root, "home");
   const env = createServiceRuntimeEnvironment(nodeDir, join(root, "tools"), {
-    PATH: join(process.env.SystemRoot, "System32"), SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC,
+    PATH: process.platform === "win32" ? join(process.env.SystemRoot, "System32") : "/usr/bin:/bin", SystemRoot: process.env.SystemRoot, COMSPEC: process.env.COMSPEC,
     HOME: home, USERPROFILE: home, APPDATA: join(home, "AppData/Roaming"), LOCALAPPDATA: join(home, "AppData/Local"),
     TEMP: root, TMP: root, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_SKIP_VERSION_CHECK: "1",
     WECLIO_AGENT_STATE_DIR: join(root, "state"), WECLIO_AGENT_WORKSPACE: workspace, WECLIO_AGENT_PORT: "0", WECLIO_AGENT_DRAIN_TIMEOUT_MS: "3000",
   });
-  child = spawn(join(nodeDir, "node.exe"), [join(serviceDir, "entry.mjs")], { cwd: root, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  child = spawn(node, [join(serviceDir, "entry.mjs")], { cwd: root, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   child.stdout.on("data", (chunk) => { stdout += chunk; });
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   exited = new Promise((resolve_) => child.once("exit", resolve_));
@@ -124,7 +124,7 @@ test("production closure outside the repository runs a real tool loop and TS ext
   const receipt = JSON.parse(await readFile(join(agentDir, "weclio-desktop-packages.json"), "utf8"));
   assert.deepEqual(receipt.initialized, ["@weclio/plugins", "weclio-cli"]);
   // 使用 SDK 自己的 exporter/图片 worker 验证磁盘模板、主题与 WASM，不新增产品 export API。
-  const assets = await promisify(execFile)(join(nodeDir, "node.exe"), ["--input-type=module", "--eval", `
+  const assets = await promisify(execFile)(node, ["--input-type=module", "--eval", `
     import assert from 'node:assert/strict';
     import {readdir,readFile} from 'node:fs/promises';
     import {join} from 'node:path';

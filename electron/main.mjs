@@ -60,6 +60,10 @@ const installer = createUpdateInstaller({
   app, dialog, getService: () => updates, getWindow: () => mainWindow,
   // 更新准入必须由自有 Service 的控制管道回答；开发态或 Service 不可用时返回 undefined，安装器拒绝。
   getGate: () => localService?.control,
+  stopService: async () => {
+    const code = await stopOwnedAgent();
+    if (code !== 0) throw new Error("Agent Service 未正常退出，已取消更新。");
+  },
   restoreWindow: async () => {
     // 安装失败后 Main 可能已停掉自有 Service；窗口恢复前必须先重新拉起。
     if (app.isPackaged && (!localService || serviceStopped)) {
@@ -106,26 +110,32 @@ function readAgentService() {
 }
 
 app.on("window-all-closed", () => { if (!installer.isClosing()) app.quit(); });
-// 退出事件不能 await：先否决一次，等自有 Service 真正停止后再放行，
-// 避免安装器替换文件时服务仍在写盘。
 let serviceStopped = false;
+let quitWaiting = false;
+async function stopOwnedAgent() {
+  if (!localService) throw new Error("Agent Service 不可用。");
+  const code = await localService.stop();
+  serviceStopped = true;
+  return code;
+}
 app.on("before-quit", (event) => {
-  // 标准 updater 可能已安排退出；启动失败的恢复流程必须能否决这次退出。
-  if (installer.isRecovering()) { event.preventDefault(); return; }
-  if (serviceStopped || !localService) return;
-  event.preventDefault();
-  void (async () => {
-    try { await localService.stop(); }
-    catch (error) { console.error("[desktop] Service 停止失败:", error.message); }
-    finally { serviceStopped = true; app.quit(); }
-  })();
+  if (installer.isRecovering()) event.preventDefault();
 });
-// before-quit 之后仍可能被 renderer 否决；只在真正退出时停止服务。
-app.on("will-quit", () => {
+// 等窗口真正关闭，保留 renderer 的草稿否决；更新路径另在交接前停服。
+app.on("will-quit", (event) => {
+  if (!serviceStopped && localService) {
+    event.preventDefault();
+    if (quitWaiting) return;
+    quitWaiting = true;
+    void stopOwnedAgent().then(() => app.quit(), (error) => {
+      quitWaiting = false;
+      showError(error.message);
+    });
+    return;
+  }
   console.log("[desktop] 正在退出。");
   quitting = true;
   startup.abort();
-  void localService?.stop().catch((error) => console.error("[desktop] Service 停止失败:", error.message));
   ipcMain.removeHandler("agent-service:config");
   ipcMain.removeHandler("resource:download");
   installer.dispose();

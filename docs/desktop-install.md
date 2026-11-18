@@ -7,11 +7,11 @@
 
 ## 一、安装与可选环境
 
-**1. Weclio 自带 Node/npm/npx，无需安装系统 Node**
+**1. 先安装系统 Node.js 22.19.0 或以上版本**
 
-- 使用 Windows x64 的 Weclio 安装包。
-- 本地 Agent Service 使用随包 Node，界面是静态 React，不再启动 Next Server。
-- 不需要额外安装 Pi 或 npm，也不会替换机器上的系统 Node。
+- 使用 Windows x64 的 Weclio 安装包。安装 Node.js 后重新打开 Weclio。
+- 本地 Agent Service 使用系统 Node；界面是静态 React，不启动 Next Server，也不需要单独安装 Pi。
+- 如果桌面入口找不到 Node，可将 `WECLIO_NODE_EXECUTABLE` 设为 `node.exe` 的绝对路径。
 
 **2. 使用 Bash/Git 功能时安装 Git for Windows（含 Git Bash）**
 
@@ -27,7 +27,7 @@
 
 ## 二、哪些工具由安装包提供
 
-- **Node/npm/npx**：由安装包提供，供独立 Agent Service 使用；不依赖系统 Node。
+- **Node/npm/npx**：不随安装包提供。Node 用于运行 Service；npm/npx 用于相应的插件及工具操作。
 - **Git**：文件改动标记与 diff、技能更新检查都依赖它；
   对话里的 `bash` 工具用的是 Git 自带的 Git Bash。
 - 未安装 Git 时仍可启动应用，但 Git 状态/diff 与 Bash 能力不可用或会明确报告缺失。
@@ -37,8 +37,7 @@
 ## 三、升级
 
 - **所有桌面更新使用同一安装包通道**，没有独立业务 ZIP 或 npm 更新。
-  **重构候选当前仍拒绝安装更新**：真实 Service 门禁及失败恢复需在 P5 完成，不能把构建通过当成更新可用。
-  发布前须验证忙任务/未保存草稿阻止安装、失败恢复，以及正常关闭不会自动安装更新。
+  更新在窗口接受关闭且自有 Service 正常退出后才交接安装器。发布前仍需跑真实升级，验证忙任务、草稿和失败恢复。
 - 更新使用 EXE/blockmap 差异下载，必要时回退全量；仍需安装并重开，**不保证几十秒完成**。
   真实 Windows VM 的成功差异传输尚未验证。
 - 也可双击新版 `Setup.exe` 覆盖安装，无需先卸载。安装期间窗口会关闭，

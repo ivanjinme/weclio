@@ -20,7 +20,7 @@ export function closeUpdateWindow(window) {
   });
 }
 
-export function createUpdateInstaller({ app, getService, getWindow, getGate, dialog, restoreWindow, log = console.error }) {
+export function createUpdateInstaller({ app, getService, getWindow, getGate, stopService, dialog, restoreWindow, log = console.error }) {
   let phase = "idle";
   let gate;
   let unsubscribe;
@@ -70,25 +70,28 @@ export function createUpdateInstaller({ app, getService, getWindow, getGate, dia
       if (!current) throw new Error("Desktop task gate unavailable");
       const warnBusy = () => message("warning", "有任务正在运行，请结束任务后再更新。", "Tasks are running. Finish them before updating.");
       if (await current.inspect() === "busy") { await warnBusy(); phase = "idle"; return; }
-      // 点击“重启更新”本身即明确授权；不再重复询问，仍保留锁定与关闭拦截。
       if (disposed) return;
-      gate = current;
-      if (await current.lock() === "busy") {
-        await unlock();
-        await warnBusy(); phase = "idle"; return;
-      }
       await service.verifyForInstall();
       if (disposed) return;
       phase = "closing";
       if (!await closeUpdateWindow(getWindow())) {
-        await unlock();
         phase = "preparing";
         await message("info", "窗口未关闭，更新已取消。请保存修改后重试。", "The window was not closed, so the update was cancelled. Save your changes and try again.");
         phase = "idle";
         return;
       }
       if (disposed) return;
-      // 窗口已经同意关闭；此后才允许标准 updater 启动安装器。
+      // 窗口关闭前允许保存；再原子锁定，防止其他客户端在检查后启动任务。
+      gate = current;
+      if (await current.lock() === "busy") {
+        gate = undefined;
+        await restoreWindow();
+        await warnBusy(); phase = "idle"; return;
+      }
+      if (disposed) return;
+      await stopService();
+      gate = undefined;
+      if (disposed) return;
       phase = "handoff";
       unsubscribe = service.onInstallError((error) => { void recover(error).catch((failure) => log("[desktop-update] recovery:", failure.message)); });
       await service.quitAndInstall();

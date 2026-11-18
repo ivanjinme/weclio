@@ -121,13 +121,14 @@ test("upstream install retries after async launch error, vetoes failed scheduled
   };
   installer = createUpdateInstaller({
     app, getService: () => service, getWindow: () => window, getGate: () => gate,
+    async stopService() { assert.equal(locked, true); locked = false; },
     dialog: { async showMessageBox(...args) {
       const options = args.at(-1);
       if (options.type === "error") errorShown.resolve();
       assert.notEqual(options.type, "question", "restart click must not require another confirmation");
       return { response: 0 };
     } },
-    async restoreWindow() { restored += 1; window = fakeWindow(); },
+    async restoreWindow() { await releaseUnlock.promise; restored += 1; window = fakeWindow(); },
     log() {},
   });
   t.after(() => installer.dispose());
@@ -141,8 +142,8 @@ test("upstream install retries after async launch error, vetoes failed scheduled
   assert.equal(installCalls.length, 1, "exercise real BaseUpdater.install on first click");
   assert.equal(updater.quitAndInstallCalled, false, "service error wrapper resets upstream's retry latch");
   assert.equal(installer.isRecovering(), true);
-  assert.equal(unlockCalls, 1);
-  assert.equal(locked, true, "keep recovery pending until the unlock acknowledgement");
+  assert.equal(unlockCalls, 0);
+  assert.equal(locked, false, "the original Service exited before handoff");
   assert.equal(quitRequests, 1, "exercise real BaseUpdater.quitAndInstall scheduled quit");
   assert.equal(vetoedQuits, 1);
   assert.equal(acceptedQuits, 0);
@@ -172,8 +173,8 @@ test("upstream install retries after async launch error, vetoes failed scheduled
   assert.equal(acceptedQuits, 1, "successful retry must really finish the upstream quit");
   assert.equal(updater.quitAndInstallCalled, true);
   assert.equal(lockCalls, 2);
-  assert.equal(unlockCalls, 1, "successful handoff keeps its gate held until server exit");
-  assert.equal(locked, true);
+  assert.equal(unlockCalls, 0);
+  assert.equal(locked, false);
   assert.equal(service.canInstall(), false, "accepted quit stops the service");
   assert.equal(updater.autoInstallOnAppQuit, false);
   assert.equal(checks, 1);

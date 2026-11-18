@@ -34,6 +34,7 @@ import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import { apiUrl, isApiBaseConfigured } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
+import { connectLocalWeb } from "@/lib/local-web-connection";
 
 interface SettingsContext {
   cwd: string | null;
@@ -56,10 +57,22 @@ const EXPLORER_COLLAPSED_WIDTH = 33;
 
 export function AppShell() {
   const { locale } = useI18n();
-  const configured = isApiBaseConfigured();
+  const [configured, setConfigured] = useState(() => isApiBaseConfigured());
+  const [connecting, setConnecting] = useState(!configured);
+  useEffect(() => {
+    if (configured) return;
+    const controller = new AbortController();
+    void connectLocalWeb(controller.signal).then((connected) => {
+      if (controller.signal.aborted) return;
+      setConfigured(connected);
+      setConnecting(false);
+    });
+    return () => controller.abort();
+  }, [configured]);
   useEffect(() => {
     if (!configured) return dismissStartupSplash();
   }, [configured]);
+  if (connecting) return <div role="status" className="flex h-dvh items-center justify-center">{locale === "zh-CN" ? "正在连接 Agent Service…" : "Connecting to Agent Service…"}</div>;
   if (!configured) {
     return <div role="alert" className="flex h-dvh items-center justify-center p-6 text-center">
       {locale === "zh-CN" ? "尚未配置 Agent Service。开发环境请运行 npm run dev:web，或由宿主提供服务连接配置。" : "Agent Service is not configured. Run npm run dev:web for local development, or supply the connection through the host."}

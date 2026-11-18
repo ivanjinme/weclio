@@ -1,94 +1,27 @@
 #!/usr/bin/env node
 "use strict";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+/* eslint-disable @typescript-eslint/no-require-imports */
+const path = require("node:path");
 const { getUnsupportedNodeVersionMessage, isNodeVersionSupported } = require("./node-version");
-
-if (!isNodeVersionSupported(process.versions.node)) {
-  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
-  process.exit(1);
-}
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { spawn } = require("child_process");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const path = require("path");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { assertUiOnlyBuild } = require("./ui-build");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { parseLaunchOptions } = require("./weclio-web-options");
 
-const pkgDir = path.join(__dirname, "..");
-const nextDir = path.join(pkgDir, ".next");
-
-// Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
-// may not exist when installed via npx).
-let nextBin;
-try {
-  nextBin = require.resolve("next/dist/bin/next", { paths: [pkgDir] });
-} catch {
-  // Fallback: locate next package root and derive the bin path manually.
-  try {
-    const nextPkg = require.resolve("next/package.json", { paths: [pkgDir] });
-    nextBin = path.join(path.dirname(nextPkg), "dist", "bin", "next");
-  } catch {
-    nextBin = path.join(pkgDir, "node_modules", "next", "dist", "bin", "next");
+async function main() {
+  if (!isNodeVersionSupported(process.versions.node)) throw new Error(getUnsupportedNodeVersionMessage(process.versions.node));
+  const root = path.join(__dirname, "..");
+  const args = process.argv.slice(2);
+  if (args[0] !== "service") assertUiOnlyBuild(path.join(root, ".next"));
+  const { runWeb, runStandalone } = await import("./web-host.mjs");
+  if (args[0] === "service") {
+    if (args.length !== 1) throw new Error("Configure standalone Agent Service with WECLIO_AGENT_* environment variables.");
+    await runStandalone(root);
+  } else {
+    await runWeb(root, parseLaunchOptions(args));
   }
 }
 
-const { port, hostname, openBrowser } = parseLaunchOptions();
-const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-
-try {
-  assertUiOnlyBuild(nextDir);
-} catch (error) {
-  console.error(error.message);
-  process.exit(1);
-}
-
-if (!loopbackHostnames.has(hostname)) {
-  console.warn(
-    `Warning: weclio-web is listening on ${hostname} without authentication. Only use this on a trusted network.`,
-  );
-}
-
-const nextArgs = ["start", "-p", port];
-nextArgs.push("-H", hostname);
-
-// Always run next's JS entry with node directly — avoids .bin symlink issues
-// and path-with-spaces problems on Windows when shell: true is used.
-// 生产入口固定使用已检查的 .next，不能继承开发输出目录绕过产物检查。
-const childEnv = { ...process.env, NODE_ENV: "production", WECLIO_HOST: hostname };
-delete childEnv.WECLIO_DEV_UI_DIST_DIR;
-const child = spawn(process.execPath, [nextBin, ...nextArgs], {
-  cwd: pkgDir,
-  stdio: ["inherit", "pipe", "inherit"],
-  env: childEnv,
+main().catch((error) => {
+  console.error(`[weclio-web] ${error.message}`);
+  process.exitCode = 1;
 });
-
-let browserOpened = false;
-const url = `http://${hostname}:${port}`;
-
-child.stdout.on("data", (chunk) => {
-  const text = chunk.toString();
-  process.stdout.write(text);
-  if (openBrowser && !browserOpened && text.includes("Ready")) {
-    browserOpened = true;
-    const isWindows = process.platform === "win32";
-    const isMac = process.platform === "darwin";
-    const openCmd = isWindows ? "start" : isMac ? "open" : "xdg-open";
-    const opener = spawn(openCmd, [url], {
-      shell: isWindows,
-      stdio: "ignore",
-      detached: true,
-    });
-
-    opener.on("error", (error) => {
-      console.warn(`Could not open browser automatically: ${error.message}`);
-    });
-
-    opener.unref();
-  }
-});
-
-child.on("exit", (code) => process.exit(code ?? 0));

@@ -8,12 +8,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import nodeVersion from "../bin/node-version.js";
 import { prepareSignedUpdate, readReleaseSigning } from "./update-release.mjs";
 import { createToolsetManifest } from "./toolsets.mjs";
-import { prepareNodeRuntime } from "./node-runtime.mjs";
 export { validateInstaller } from "./update-release.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
-const inputs = ["app", "desktop", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "vite.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/service-build.mjs", "electron/node-runtime.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
+const inputs = ["app", "desktop", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "vite.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/service-build.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
 
 export function fingerprintDesktopResources(base) {
   return fingerprint(base, ["ui", "service", "host"]);
@@ -35,7 +34,7 @@ export async function fingerprint(base, paths = inputs) {
 }
 
 export function fingerprintPackaging(base) {
-  return fingerprint(base, ["electron", "resources/desktop-update.json", "resources/runtime/win-x64/tools", "resources/runtime/win-x64/node"]);
+  return fingerprint(base, ["electron", "bin/node-version.js", "resources/desktop-update.json", "resources/runtime/win-x64/tools"]);
 }
 
 export async function validateVersion(base) {
@@ -85,7 +84,6 @@ async function main() {
   if (process.platform !== "win32" || process.arch !== "x64" || !nodeVersion.isNodeVersionSupported(process.versions.node)) throw new Error("需要 Windows x64 和 Node.js 22.19+。");
   const version = await validateVersion(root);
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version) || version.split(".").some((part) => !Number.isSafeInteger(Number(part)))) throw new Error("桌面更新仅接受正式版本号。");
-  await prepareNodeRuntime({ destination: join(root, "resources/runtime/win-x64/node"), cacheDir: join(root, "build/runtime-downloads") });
   const packagingFingerprint = await fingerprintPackaging(root);
   const signing = await readReleaseSigning({ root });
   const resources = join(root, "build/desktop");
@@ -107,9 +105,9 @@ async function main() {
     const resourcesHash = await fingerprintDesktopResources(resources);
     await writeFile(snapshot, JSON.stringify({ version, fingerprint: initial, resources: resourcesHash }) + "\n");
   }
-  // 发行不能把默认跳过的产物测试当成已验收：始终用真实候选闭包和 bundled Node 跑隔离工具循环。
+  // 发行不能把默认跳过的产物测试当成已验收：始终用真实候选闭包和系统 Node 跑隔离工具循环。
   await run(process.execPath, ["--test", "--test-concurrency=4", join(root, "electron/service-artifact.integration.test.mjs")], {
-    ...process.env, WECLIO_SERVICE_ARTIFACT: join(resources, "service"), WECLIO_NODE_RUNTIME: join(root, "resources/runtime/win-x64/node"),
+    ...process.env, WECLIO_SERVICE_ARTIFACT: join(resources, "service"),
   });
   // --quick 可复用服务构建，但工具描述必须绑定本次实际打包的工具。
   if (args.includes("--quick")) {

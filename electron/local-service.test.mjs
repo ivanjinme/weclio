@@ -5,18 +5,12 @@ const moduleUrl = new URL("./local-service.mjs", import.meta.url).href;
 function scenario(mode, check) {
   const script = `
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 const root = mkdtempSync(join(tmpdir(), 'weclio-local-host-'));
 const service = join(root, 'service'); mkdirSync(service);
 mkdirSync(join(root, 'ui')); writeFileSync(join(root, 'ui/index.html'), '<title>fixture</title>');
-const runtimeMock = 'export async function verifyNodeRuntime(root){return {root:'+JSON.stringify(dirname(process.execPath))+',executable:'+JSON.stringify(process.execPath)+'}}';
-registerHooks({ resolve(specifier, context, next) {
-  if (specifier === './node-runtime.mjs') return { url: 'data:text/javascript,' + encodeURIComponent(runtimeMock), shortCircuit: true };
-  return next(specifier, context);
-}});
 const code = ${JSON.stringify(`
 import {createServer} from 'node:http'; import {writeFileSync} from 'node:fs'; import {join} from 'node:path';
 const state=process.env.WECLIO_AGENT_STATE_DIR;
@@ -37,7 +31,7 @@ server.listen(0,'127.0.0.1',()=>{
 writeFileSync(join(service,'entry.mjs'), code);
 const {startLocalAgentService}=await import(${JSON.stringify(moduleUrl)});
 const controller=new AbortController();
-const options={resourcesPath:root,stateDir:join(root,'state'),logsPath:join(root,'logs'),appVersion:'test',toolsRoot:root,signal:controller.signal,env:{...process.env,FIXTURE_INSPECT:'busy',FIXTURE_LOCK:'ready',ELECTRON_RUN_AS_NODE:'1',NODE_OPTIONS:'--require forbidden',NODE_PATH:'forbidden'}};
+const options={resourcesPath:root,stateDir:join(root,'state'),logsPath:join(root,'logs'),appVersion:'test',toolsRoot:root,signal:controller.signal,env:{...process.env,WECLIO_NODE_EXECUTABLE:process.execPath,FIXTURE_INSPECT:'busy',FIXTURE_LOCK:'ready',ELECTRON_RUN_AS_NODE:'1',NODE_OPTIONS:'--require forbidden',NODE_PATH:'forbidden'}};
 let started;
 try {
   ${check}
@@ -59,7 +53,7 @@ assert.equal(started.uiDir,join(root,'ui'));
 const seen=JSON.parse(readFileSync(join(root,'state/seen.json'),'utf8'));
 assert.equal(seen.executable,process.execPath);
 assert.equal(seen.electron,undefined);assert.equal(seen.options,undefined);
-assert.equal(seen.origins,'weclio://app');assert.equal(seen.parent,'1');
+assert.equal(seen.origins,'weclio://app,http://127.0.0.1:8888');assert.equal(seen.parent,'1');
 assert.equal(await started.control.inspect(),'busy');
 assert.equal(await started.control.lock(),'ready');
 assert.equal(await started.control.unlock(),'unlocked');

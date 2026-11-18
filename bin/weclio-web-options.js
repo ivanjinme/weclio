@@ -16,11 +16,19 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
       port:      { type: "string", short: "p" },
       hostname:  { type: "string", short: "H" },
       "no-open": { type: "boolean" },
+      "service-url": { type: "string" },
+      "token-file": { type: "string" },
     },
-    strict: false,
+    strict: true,
   });
 
+  const serviceUrl = cliArgs["service-url"];
+  const tokenFile = cliArgs["token-file"];
+  if ((serviceUrl !== undefined || tokenFile !== undefined) && (!serviceUrl || !tokenFile)) {
+    throw new Error("Provide --service-url and --token-file together.");
+  }
   return {
+    ...(serviceUrl ? { attach: { serviceUrl, tokenFile } } : {}),
     port: cliArgs.port ?? env.PORT ?? "8888",
     hostname: cliArgs.hostname ?? env.WECLIO_HOST ?? "127.0.0.1",
     openBrowser: !cliArgs["no-open"] && !isEnabled(env.WECLIO_NO_OPEN),

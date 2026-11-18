@@ -38,7 +38,7 @@ test("quick-build fingerprint changes when a source or dependency file changes",
 
 test("a clean checkout does not require or fingerprint generated next-env.d.ts", async (t) => {
   const dir = await fixture(t);
-  for (const file of ["app", "desktop", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "vite.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/service-build.mjs", "electron/node-runtime.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"]) {
+  for (const file of ["app", "desktop", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "vite.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/service-build.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"]) {
     await mkdir(dirname(join(dir, file)), { recursive: true });
     await writeFile(join(dir, file), "fixture");
   }
@@ -49,9 +49,9 @@ test("a clean checkout does not require or fingerprint generated next-env.d.ts",
   await assert.rejects(fingerprint(dir), { code: "ENOENT" });
 });
 
-test("packaging fingerprint covers trust config, host and the complete shipped Node/npm Runtime", async (t) => {
+test("packaging fingerprint covers trust config, system Node contract, host and tools", async (t) => {
   const dir = await fixture(t);
-  const files = ["electron/main.mjs", "electron/builder.json", "resources/desktop-update.json", "resources/runtime/win-x64/tools/rg.exe", "resources/runtime/win-x64/node/node.exe", "resources/runtime/win-x64/node/node_modules/npm/bin/npm-cli.js"];
+  const files = ["electron/main.mjs", "electron/builder.json", "resources/desktop-update.json", "resources/runtime/win-x64/tools/rg.exe", "bin/node-version.js", "electron/system-node.mjs"];
   for (const file of files) {
     await mkdir(dirname(join(dir, file)), { recursive: true });
     await writeFile(join(dir, file), "first");
@@ -90,7 +90,7 @@ test("installer releases need no shell baseline, business package, or shell desc
   }
   assert.match(release, /"--publish", "never"/);
   assert.match(release, /WECLIO_SERVICE_ARTIFACT: join\(resources, "service"\)/);
-  assert.match(release, /WECLIO_NODE_RUNTIME: join\(root, "resources\/runtime\/win-x64\/node"\)/);
+  assert.doesNotMatch(release, /WECLIO_NODE_RUNTIME|prepareNodeRuntime/);
   assert.match(release, /"electron\/service-artifact\.integration\.test\.mjs"/);
   assert.doesNotMatch(release, /server-inputs|build\/desktop\/server|"\.next"/);
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));

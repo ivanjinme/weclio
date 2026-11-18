@@ -1,27 +1,28 @@
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { verifyNodeRuntime } from "./node-runtime.mjs";
-import { createServiceRuntimeEnvironment } from "./runtime.mjs";
+import { resolveSystemNode } from "./system-node.mjs";
 import { PROTOCOL_VERSION } from "../lib/agent/protocol/version-value.mjs";
 import { createServiceControl } from "./service-control.mjs";
 
-/** 安装版只用资源目录里的独立 Node 启动自有 Service，不查系统 Node 或连接陌生进程。 */
+/** 安装版用系统 Node 启动自有 Service，不回退到其他运行时或接管陌生进程。 */
 export async function startLocalAgentService({ resourcesPath, stateDir, logsPath, appVersion, toolsRoot, signal, onUnexpectedExit = () => {}, env = process.env }) {
   const serviceRoot = join(resourcesPath, "service");
   const entry = join(serviceRoot, "entry.mjs");
   const uiDir = join(resourcesPath, "ui");
   if (!existsSync(entry) || !existsSync(join(uiDir, "index.html"))) throw new Error("安装包缺少 Agent Service 或静态 UI，请重新安装 Weclio。");
   signal?.throwIfAborted();
-  const runtime = await verifyNodeRuntime(join(resourcesPath, "runtime/win-x64/node"));
+  const runtime = await resolveSystemNode({ env, toolsRoot, signal });
   signal?.throwIfAborted();
   mkdirSync(stateDir, { recursive: true });
   mkdirSync(logsPath, { recursive: true });
   const logFile = join(logsPath, "agent-service.log");
-  const childEnv = createServiceRuntimeEnvironment(runtime.root, toolsRoot, env);
+  const childEnv = runtime.env;
   Object.assign(childEnv, {
     WECLIO_AGENT_HOST: "127.0.0.1", WECLIO_AGENT_PORT: "0", WECLIO_AGENT_STATE_DIR: stateDir,
-    WECLIO_AGENT_VERSION: appVersion, WECLIO_AGENT_ALLOWED_ORIGINS: "weclio://app", WECLIO_AGENT_PARENT_STDIN: "1",
+    WECLIO_AGENT_VERSION: appVersion,
+    WECLIO_AGENT_ALLOWED_ORIGINS: [...new Set(["weclio://app", "http://127.0.0.1:8888", ...(env.WECLIO_AGENT_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean)])].join(","),
+    WECLIO_AGENT_PARENT_STDIN: "1",
   });
   // 明确使用本次实例的 token 文件；不能继承开发环境对其他 Service 的选择。
   for (const key of Object.keys(childEnv)) if (key.toUpperCase() === "WECLIO_AGENT_TOKEN_FILE") delete childEnv[key];
@@ -57,13 +58,17 @@ export async function startLocalAgentService({ resourcesPath, stateDir, logsPath
     if (stopped) return stopped;
     stopping = true;
     stopped = (async () => {
-      if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+      if (!child.pid || child.exitCode !== null || child.signalCode !== null) return exited;
       if (!child.stdin.destroyed && child.stdin.writable) child.stdin.write("shutdown\n");
       let timer;
       try { await Promise.race([exited, new Promise((resolve) => { timer = setTimeout(resolve, 13_000); })]); }
       finally { clearTimeout(timer); }
       forceStop();
-      await exited;
+      try {
+        return await Promise.race([exited, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("无法确认 Agent Service 已退出。")), 3000);
+        })]);
+      } finally { clearTimeout(timer); }
     })();
     return stopped;
   }

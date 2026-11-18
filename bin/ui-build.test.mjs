@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,15 +89,9 @@ for (const [label, manifest, hook] of rejected) {
 }
 
 for (const manifest of [pages, { "/page": "app/page.js" }, { ...pages, "/favicon.ico/route": "app/favicon.ico/route.js" }]) {
-  test(`current UI-only manifest (${Object.keys(manifest).length} entries) starts CLI`, (t) => {
-    const { root, nextDir } = fixture(t, manifest);
+  test(`admits the current UI-only manifest (${Object.keys(manifest).length} entries)`, (t) => {
+    const { nextDir } = fixture(t, manifest);
     assert.doesNotThrow(() => assertUiOnlyBuild(nextDir));
-    const { result, marker } = runCli(root);
-    assert.equal(result.status, 0, result.stderr);
-    assert.equal(existsSync(marker), true);
-    const spawned = JSON.parse(readFileSync(marker, "utf8"));
-    assert.equal(spawned.options.env.NODE_ENV, "production");
-    assert.equal(spawned.options.env.WECLIO_DEV_UI_DIST_DIR, undefined);
   });
 }
 

@@ -23,6 +23,10 @@ function isEmptyDraft(draft: ChatDraft): boolean {
   return !composerText(draft.parts) && draft.images.length === 0;
 }
 
+export function hasChatDrafts(): boolean {
+  return drafts.size > 0;
+}
+
 export function getDraft(key: string): ChatDraft | null {
   const draft = drafts.get(key);
   return draft ? cloneDraft(draft) : null;

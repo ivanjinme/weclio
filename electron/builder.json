@@ -16,7 +16,8 @@
     "electron/update-install.mjs",
     "electron/local-service.mjs",
     "electron/service-control.mjs",
-    "electron/node-runtime.mjs",
+    "electron/system-node.mjs",
+    "bin/node-version.js",
     "lib/agent/protocol/version-value.mjs",
     "electron/runtime.mjs",
     "electron/toolsets.mjs",
@@ -66,14 +67,8 @@
       "from": "resources/runtime/win-x64",
       "to": "runtime/win-x64",
       "filter": [
-        "tools/**/*",
-        "node/**/*",
-        "!node/node_modules/**/*"
+        "tools/**/*"
       ]
-    },
-    {
-      "from": "resources/runtime/win-x64/node/node_modules",
-      "to": "runtime/win-x64/node/node_modules"
     }
   ],
   "electronDist": "node_modules/electron/dist",

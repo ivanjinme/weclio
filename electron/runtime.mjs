@@ -21,7 +21,7 @@ export function createRuntimeEnvironment(runtimeRoot, env = process.env, platfor
   return result;
 }
 
-/** 独立 Service 固定优先使用包内 Node/npm；Git/Bash 仍沿用用户 PATH，rg/fd 仅兜底。 */
+/** 子工具优先使用已选的系统 Node；Git/Bash 沿用用户 PATH，rg/fd 仅兜底。 */
 export function createServiceRuntimeEnvironment(nodeRoot, toolsRoot, env = process.env, platform = process.platform) {
   const result = createRuntimeEnvironment(toolsRoot, env, platform);
   for (const key of Object.keys(result)) {
@@ -36,6 +36,6 @@ export function createServiceRuntimeEnvironment(nodeRoot, toolsRoot, env = proce
       seen.add(entry.toLowerCase());
       return true;
     }).join(";");
-  } else result.PATH = `${nodeRoot}:${result.PATH ?? ""}`;
+  } else result.PATH = [nodeRoot, ...(result.PATH ?? "").split(":").filter(Boolean)].join(":");
   return result;
 }

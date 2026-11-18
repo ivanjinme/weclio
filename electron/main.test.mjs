@@ -57,7 +57,7 @@ export class BrowserWindow extends EventEmitter {
 
 function runMain(check, { platform = process.platform, setup = "", packaged = false, startupFailure = false } = {}) {
   const mockUrl = `data:text/javascript,${encodeURIComponent(mock)}`;
-  const serviceMock = `data:text/javascript,${encodeURIComponent(`export const starts=[]; export let stops=0; export const control={inspect:async()=>'ready',lock:async()=>'ready',unlock:async()=>{}}; export async function startLocalAgentService(options){ starts.push(options); if(${startupFailure}) throw new Error('fixture local service failed'); return {baseUrl:'http://127.0.0.1:1889'+starts.length,token:'owned-token',uiDir:'fixture/ui',control,stop:async()=>{stops++}}; }`)}`;
+  const serviceMock = `data:text/javascript,${encodeURIComponent(`export const starts=[]; export let stops=0; export const control={inspect:async()=>'ready',lock:async()=>'ready',unlock:async()=>{}}; export async function startLocalAgentService(options){ starts.push(options); if(${startupFailure}) throw new Error('fixture local service failed'); return {baseUrl:'http://127.0.0.1:1889'+starts.length,token:'owned-token',uiDir:'fixture/ui',control,stop:async()=>{stops++; return 0}}; }`)}`;
   const toolsMock = `data:text/javascript,${encodeURIComponent("export async function resolveDesktopTools(){return 'fixture-tools'}")}`;
   const script = `
     import assert from 'node:assert/strict';
@@ -239,7 +239,7 @@ test("an empty Service token file fails closed", () => {
   `, { setup: `writeFileSync(process.env.WECLIO_DESKTOP_AGENT_TOKEN_FILE, '  \\n');` });
 });
 
-test("packaged Desktop starts its owned bundled Service before exposing static UI, not a Next server", () => {
+test("packaged Desktop starts its owned Service before exposing static UI, not a Next server", () => {
   runMain(`
     assert.equal(local.starts.length,1);
     assert.equal(local.starts[0].resourcesPath,'fixture-resources');
@@ -250,7 +250,8 @@ test("packaged Desktop starts its owned bundled Service before exposing static U
     assert.equal(window.urls[1],'weclio://app/index.html');
     const handler=ipcMain.handlers.get('agent-service:config');
     assert.equal(handler({sender:window.webContents,senderFrame:window.webContents.mainFrame}).token,'owned-token');
-    app.emit('will-quit'); await setImmediate();
+    app.emit('will-quit', { preventDefault() {} }); await setImmediate();
+    app.emit('will-quit', { preventDefault() {} }); await setImmediate();
     assert.equal(local.stops,1);
     assert.equal(local.starts[0].signal.aborted,true);
     assert.equal(ipcMain.handlers.has('agent-service:config'),false);
@@ -266,17 +267,20 @@ test("installer failure recovery restarts the owned Service before the window re
   assert.ok(restore.indexOf("await startOwnedAgent()") < restore.indexOf("createMainWindow"), "Service must be running before the window is recreated");
 });
 
-test("quit waits for the owned Service to stop before the installer may proceed", () => {
+test("ordinary quit leaves Service running until window close has been accepted", () => {
   runMain(`
     const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
     app.emit('before-quit', event);
-    assert.equal(event.defaultPrevented, true, 'first quit is vetoed until the Service exits');
+    assert.equal(event.defaultPrevented, false);
+    assert.equal(local.stops, 0, 'renderer can still veto close');
+    app.emit('will-quit', event);
+    assert.equal(event.defaultPrevented, true, 'final quit waits for Service exit');
     assert.equal(local.stops, 1);
     await setImmediate();
     await setImmediate();
     assert.ok(app.quits >= 1, 'quit is re-requested after the Service stopped');
     const second = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
-    app.emit('before-quit', second);
+    app.emit('will-quit', second);
     assert.equal(second.defaultPrevented, false, 'subsequent quit is allowed through');
     assert.equal(local.stops, 1, 'the Service is stopped exactly once');
   `, {packaged:true});
