@@ -154,6 +154,16 @@ test("production closure outside the repository runs a real tool loop and TS ext
   assert.match(assets.stdout, /SDK_EXPORT_AND_WASM_OK/);
   const manifest = JSON.parse(await readFile(join(serviceDir, "service-manifest.json"), "utf8"));
   assert.equal(manifest.packages.some((pkg) => ["next", "react", "electron", "typescript"].includes(pkg.name)), false);
+  // 保持父管道打开：Service 必须自己清理 stdin 和模型连接后退出。
   child.stdin.write("shutdown\n");
-  assert.equal(await exited, 0, stderr);
+  let shutdownTimer;
+  try {
+    const timedExit = new Promise((_, reject) => {
+      shutdownTimer = setTimeout(() => reject(new Error(`Service did not exit after shutdown: ${stderr}`)), 8000);
+    });
+    assert.equal(await Promise.race([exited, timedExit]), 0, stderr);
+    assert.match(stdout, /WECLIO_AGENT_CLOSED .*"timedOut":false/);
+  } finally {
+    clearTimeout(shutdownTimer);
+  }
 });

@@ -3,6 +3,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { getGlobalDispatcher } from "undici";
 import { AgentRuntime } from "../../rpc-manager";
 import { configureHttpDispatcher } from "../../http-dispatcher";
 import { PROTOCOL_VERSION } from "../protocol/version";
@@ -120,10 +121,15 @@ export async function main(initialize?: () => Promise<unknown>): Promise<void> {
   const shutdown = async (reason: "signal" | "control") => {
     if (closing) return;
     closing = true;
+    control.close();
+    process.stdin.destroy();
     try {
       const { timedOut } = await service.close();
+      if (!timedOut) await getGlobalDispatcher().destroy();
       process.stdout.write(`WECLIO_AGENT_CLOSED ${JSON.stringify({ reason, timedOut })}\n`);
-      process.exit(timedOut ? 1 : 0);
+      if (timedOut) process.exit(1);
+      // 正常停服让 Node 完成原生资源清理，避免 Windows 上强退触发 libuv 断言。
+      process.exitCode = 0;
     } catch (error) {
       console.error("[agent-service] shutdown failed:", error instanceof Error ? error.message : error);
       process.exit(1);
