@@ -12,7 +12,7 @@ export { validateInstaller } from "./update-release.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const require = createRequire(import.meta.url);
-const inputs = ["app", "desktop", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "vite.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/service-build.mjs", "electron/packages.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
+const inputs = ["app", "desktop", "components", "hooks", "lib", "public", "postcss.config.mjs", "tailwind.config.ts", "tsconfig.json", "vite.config.ts", "package.json", "package-lock.json", "LICENSE", "electron/build.mjs", "electron/service-build.mjs", "electron/package-files.mjs", "electron/toolsets.mjs"];
 
 export function fingerprintDesktopResources(base) {
   return fingerprint(base, ["ui", "service", "host"]);

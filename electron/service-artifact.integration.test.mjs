@@ -121,8 +121,7 @@ test("production closure outside the repository runs a real tool loop and TS ext
   await call(`/v1/sessions/${id}/commands`, { type: "reload" });
   const toolState = await call(`/v1/sessions/${id}/commands`, { type: "get_tools" });
   assert.match(JSON.stringify(toolState), /p4_probe/, "TS extension must reload through the production loader");
-  const receipt = JSON.parse(await readFile(join(agentDir, "weclio-desktop-packages.json"), "utf8"));
-  assert.deepEqual(receipt.initialized, ["@weclio/plugins", "weclio-cli"]);
+  // 宿主不再预置任何 npm 包；agentDir 只含本用例创建的配置与扩展。
   // 使用 SDK 自己的 exporter/图片 worker 验证磁盘模板、主题与 WASM，不新增产品 export API。
   const assets = await promisify(execFile)(node, ["--input-type=module", "--eval", `
     import assert from 'node:assert/strict';

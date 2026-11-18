@@ -8,7 +8,6 @@ import ts from "typescript";
 import { copyProductionDependency } from "./package-files.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const SEEDS = ["@weclio/plugins", "weclio-cli"];
 const json = (file) => JSON.parse(readFileSync(file, "utf8"));
 const slash = (value) => value.split(sep).join("/");
 const inside = (root, file) => { const name = relative(root, file); return name !== ".." && !name.startsWith(`..${sep}`) && !name.startsWith(sep) && !/^[a-z]:/i.test(name); };
@@ -23,7 +22,7 @@ function sourceFile(root, from, specifier) {
 }
 
 /** 编译自己的运行时引用图；不打包 SDK，以保留其动态 TS 扩展与磁盘资源布局。 */
-export function compileServiceSources(root, entries = ["lib/agent/service/entry.ts", "electron/packages.mjs"]) {
+export function compileServiceSources(root, entries = ["lib/agent/service/entry.ts"]) {
   const pending = entries.map((entry) => resolve(root, entry));
   const output = new Map();
   const dependencies = new Set();
@@ -115,7 +114,7 @@ export async function buildServiceArtifact({ root = ROOT, destination }) {
   await mkdir(destination, { recursive: false });
   const compiled = compileServiceSources(root);
   const metadata = json(join(root, "package.json"));
-  const closure = await copyDependencyClosure(root, destination, [...new Set([...compiled.dependencies, ...SEEDS])]);
+  const closure = await copyDependencyClosure(root, destination, compiled.dependencies);
   for (const [name, content] of compiled.output) {
     await mkdir(dirname(join(destination, name)), { recursive: true });
     await writeFile(join(destination, name), content);
@@ -125,7 +124,7 @@ export async function buildServiceArtifact({ root = ROOT, destination }) {
     name: "@weclio/agent-service", private: true, type: "module", version: metadata.version,
     engines: metadata.engines, dependencies: closure.direct,
   }, null, 2) + "\n");
-  await writeFile(join(destination, "entry.mjs"), `import { dirname } from "node:path";\nimport { fileURLToPath } from "node:url";\nimport { initializeDesktopPackages } from "./electron/packages.mjs";\nimport { main } from "./lib/agent/service/entry.js";\nprocess.env.WECLIO_AGENT_VERSION ??= ${JSON.stringify(metadata.version)};\nawait main(() => initializeDesktopPackages(dirname(fileURLToPath(import.meta.url))));\n`);
+  await writeFile(join(destination, "entry.mjs"), `import { main } from "./lib/agent/service/entry.js";\nprocess.env.WECLIO_AGENT_VERSION ??= ${JSON.stringify(metadata.version)};\nawait main();\n`);
   const manifest = {
     schema: 1, version: metadata.version,
     sourceLockSha256: createHash("sha256").update(readFileSync(join(root, "package-lock.json"))).digest("hex"),

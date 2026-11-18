@@ -20,8 +20,8 @@ test("Service dependencies have a dedicated resource mapping, including nested d
   const destination = join(root, "resources/service/node_modules");
   const files = ["sdk/dist/index.js", "sdk/node_modules/dependency/index.js", "sdk/resource.wasm", "sdk/LICENSE",
     "@weclio/plugins/extensions/pi-citations/index.ts", "@weclio/plugins/LICENSE",
-    "weclio-cli/bin/weclio.js", "weclio-cli/dist/cli.js", "weclio-cli/node_modules/commander/index.js",
-    "weclio-cli/skills/docx/scripts/office/validate.py", "weclio-cli/skills/tra-md2word/assets/reference.docx"];
+    "@weclio/plugins/extensions/pi-submarine/src/index.ts", "@weclio/plugins/extensions/pi-submarine/LICENSE",
+    "@weclio/plugins/extensions/pi-submarine/NOTICE.md", "@weclio/plugins/extensions/pi-web-search/index.ts"];
   for (const file of files) {
     await mkdir(join(source, file, ".."), { recursive: true });
     await writeFile(join(source, file), file);
@@ -46,7 +46,7 @@ test("Service resources contain compiled code and manifests, never Next or devel
   t.after(() => rm(root, { recursive: true, force: true }));
   const source = join(root, "service");
   const destination = join(root, "copied");
-  const kept = ["package.json", "entry.mjs", "service-manifest.json", "electron/packages.mjs", "LICENSE", "lib/agent/service/entry.js", "lib/agent/protocol/version-value.mjs"];
+  const kept = ["package.json", "entry.mjs", "service-manifest.json", "LICENSE", "lib/agent/service/entry.js", "lib/agent/protocol/version-value.mjs"];
   const omitted = ["next.config.js", "app/page.tsx", "components/private.tsx", ".env", "tsconfig.json", ".next/BUILD_ID", ".next/server/app/api/test/route.js"];
   for (const file of [...kept, ...omitted]) {
     await mkdir(join(source, file, ".."), { recursive: true });
@@ -82,7 +82,6 @@ test("desktop metadata supplies the branded Windows shortcut description", () =>
 test("Service and tools stay outside asar; no Node/npm Runtime or Next server", () => {
   assert.ok(config.files.includes("electron/local-service.mjs"));
   assert.ok(config.files.includes("!node_modules/**/*"));
-  assert.ok(config.extraResources.find((entry) => entry.to === "service").filter.includes("electron/packages.mjs"));
   assert.deepEqual(config.extraResources.find((entry) => entry.to === "runtime/win-x64").filter, ["tools/**/*"]);
   assert.ok(!config.extraResources.some((entry) => /runtime\/win-x64\/node/.test(entry.to)));
   assert.equal(config.extraResources.some((entry) => entry.to.startsWith("server")), false);

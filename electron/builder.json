@@ -44,7 +44,7 @@
     {
       "from": "build/desktop/service",
       "to": "service",
-      "filter": ["entry.mjs", "package.json", "service-manifest.json", "lib/**/*", "electron/packages.mjs", "LICENSE"]
+      "filter": ["entry.mjs", "package.json", "service-manifest.json", "lib/**/*", "LICENSE"]
     },
     {
       "from": "build/desktop/service/node_modules",
