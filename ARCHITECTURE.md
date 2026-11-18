@@ -36,6 +36,17 @@ Deployment (future direction — only Local ships today; Remote and Scale are on
 - AgentRuntime is explicitly owned by the Service host, not a Next/HMR singleton. UI requires an explicitly selected Service; the Desktop host supplies that selection through a restricted IPC bridge.
 - Pi owns agent execution, session persistence/tree semantics, and model-context construction. Do not reimplement them.
 
+## Invariants
+
+- The Service runs on standard Node.js only: no Electron/Next API, installer path, or bundled runtime in its code, build or deployment.
+- A host may start and stop the Service; the Service never depends on the host. The same artifact runs standalone.
+- One writer per canonical Pi profile and state directory, held by an OS mutex taken before package seeding. Extra clients attach over HTTP and never share the runtime.
+- Every state-changing route passes one admission gate; reads stay available during maintenance.
+- Quit order: renderer veto wins → close accepted → lock → Service exit confirmed → installer handoff.
+- The UI never guesses a backend: the connection is explicit, injected at runtime, never baked into assets, never falling back to `/api` or same-origin.
+- Protocol version is the compatibility contract and is verified before the UI mounts.
+- The tested artifact is the shipped artifact: acceptance runs against the installed tarball/installer, not the source tree.
+
 ## Current Code Entrypoints
 
 | Concern | Start here |
