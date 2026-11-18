@@ -10,14 +10,14 @@ import test from "node:test";
 
 const hostModule = new URL("./web-host.mjs", import.meta.url).href;
 
-test("managed Web bootstraps the ready owned Service only to same-origin local UI", { timeout: 20_000 }, async (t) => {
+async function testManagedWeb(t, blockPrepare) {
   const root = await mkdtemp(join(tmpdir(), "weclio-web-host-"));
   const service = join(root, "build/web-package/service");
   const state = join(root, "state");
   const agent = join(root, "home");
   async function file(path, text) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, text); }
   await file(join(root, ".next/server/app-paths-manifest.json"), '{"/page":"app/page.js"}');
-  await file(join(root, "node_modules/next/index.js"), `module.exports=()=>({ prepare:async()=>{}, getRequestHandler:()=> (_req,res)=>res.end('fixture UI') });`);
+  await file(join(root, "node_modules/next/index.js"), `module.exports=()=>({ prepare: ${blockPrepare ? "() => { console.log('Next prepare pending'); return new Promise(() => {}); }" : "async () => {}"}, getRequestHandler:()=> (_req,res)=>res.end('fixture UI') });`);
   await file(join(service, "lib/agent/protocol/version-value.mjs"), "export const PROTOCOL_VERSION=1;");
   await file(join(service, "entry.mjs"), `
 import {createServer} from 'node:http';
@@ -34,13 +34,13 @@ const server = createServer((req,res)=>{
   res.end(JSON.stringify(info));
 });
 server.listen(0,'127.0.0.1',()=>console.log('WECLIO_AGENT_READY '+JSON.stringify({...info,url:'http://127.0.0.1:'+server.address().port})));
-process.stdin.on('data',()=>{writeFileSync(join(state,'stopped'),'yes');server.close();process.exit(0);});
+function stop() {writeFileSync(join(state,'stopped'),'yes');server.close();process.exit(0);}
+process.stdin.on('data',stop);
+process.stdin.on('end',stop);
 `);
   const script = join(root, "launch.mjs");
   await file(script, `import {runWeb} from ${JSON.stringify(hostModule)};
-process.stdin.once('data',()=>process.emit('SIGINT'));
-try { await runWeb(${JSON.stringify(root)}, {hostname:'127.0.0.1',port:'0',openBrowser:false}); }
-finally { process.stdin.destroy(); }`);
+await runWeb(${JSON.stringify(root)}, {hostname:'127.0.0.1',port:'0',openBrowser:false});`);
   const child = spawn(process.execPath, [script], {
     env: { ...process.env, HOME: agent, USERPROFILE: agent, WECLIO_AGENT_STATE_DIR: state, WECLIO_AGENT_TOKEN_FILE: "" },
     stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
@@ -56,10 +56,19 @@ finally { process.stdin.destroy(); }`);
   const readline = createInterface({ input: child.stdout });
   const origin = await Promise.race([exit.then(() => { throw Error(stderr || "Web exited before readiness"); }), (async () => {
     for await (const line of readline) {
+      if (blockPrepare && line === "Next prepare pending") return undefined;
       if (line.startsWith("Weclio ready: ")) return line.slice(14);
     }
     throw Error(stderr || "No readiness line");
   })()]);
+  if (blockPrepare) {
+    child.stdin.write("shutdown\n");
+    const deadline = AbortSignal.timeout(3_000);
+    if (child.exitCode === null && child.signalCode === null) await once(child, "exit", { signal: deadline });
+    assert.deepEqual(await exit, [0, null], stderr);
+    assert.equal(await readFile(join(state, "stopped"), "utf8"), "yes");
+    return;
+  }
   const response = await fetch(origin);
   assert.equal(await response.text(), "fixture UI");
   assert.equal(response.headers.get("x-frame-options"), "DENY");
@@ -72,10 +81,13 @@ finally { process.stdin.destroy(); }`);
   assert.equal(allowed.headers.get("cache-control"), "no-store");
   const { baseUrl, token } = await allowed.json();
   assert.equal((await fetch(baseUrl + "/v1/info", { headers: { Authorization: `Bearer ${token}` } })).status, 200);
-  child.stdin.end("stop");
+  child.stdin.end("shutdown\n");
   assert.deepEqual(await exit, [0, null], stderr);
   assert.equal(await readFile(join(state, "stopped"), "utf8"), "yes");
-});
+}
+
+test("managed Web bootstraps the ready owned Service only to same-origin local UI", { timeout: 20_000 }, (t) => testManagedWeb(t, false));
+test("managed Web stops its Service even when Next preparation is pending", { timeout: 20_000 }, (t) => testManagedWeb(t, true));
 
 test("explicit attach never starts or stops an external Service", { timeout: 20_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "weclio-web-attach-"));

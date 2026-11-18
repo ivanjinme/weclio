@@ -17,19 +17,16 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
   const files = await discoverSessionFiles(join(getAgentDir(), "sessions"));
   const pathToId = new Map(files.map((file) => [sessionPathKey(file.path), file.header.id]));
 
-  return files.map(({ path, header, modified }) => {
-    cacheSessionPath(header.id, path);
-    return {
-      path,
-      id: header.id,
-      cwd: header.cwd,
-      created: header.timestamp,
-      modified,
-      firstMessage: "",
-      titleLoaded: false,
-      parentSessionId: header.parentSession ? pathToId.get(sessionPathKey(header.parentSession)) : undefined,
-    };
-  });
+  return files.map(({ path, header, modified }) => ({
+    path,
+    id: header.id,
+    cwd: header.cwd,
+    created: header.timestamp,
+    modified,
+    firstMessage: "",
+    titleLoaded: false,
+    parentSessionId: header.parentSession ? pathToId.get(sessionPathKey(header.parentSession)) : undefined,
+  }));
 }
 
 export async function listAllSessions(): Promise<SessionInfo[]> {
@@ -47,9 +44,9 @@ export async function listAllSessions(): Promise<SessionInfo[]> {
   }
 
   const loadPromise = loadAllSessions().then((data) => {
-    // An invalidation may happen while the scan is in flight. Do not let that
-    // older result repopulate the cache after a session mutation.
+    // 失效后的扫描结果不能重新写入目录或双向路径缓存。
     if ((globalThis.__piSessionListGeneration ?? 0) === generation) {
+      for (const { id, path } of data) cacheSessionPath(id, path);
       globalThis.__piSessionListCache = { data, ts: Date.now() };
     }
     return data;
@@ -109,22 +106,24 @@ export async function loadSessionTitles(ids: string[]) {
   return readSessionTitles(sessions.filter((session) => requested.has(session.id)));
 }
 
-export async function resolveSessionPath(sessionId: string): Promise<string | null> {
-  const cached = getPathCache().get(sessionId);
-  if (cached) return cached;
-
-  // Cache miss: scan all sessions to populate cache, then retry
-  await listAllSessions();
-  return getPathCache().get(sessionId) ?? null;
+async function lookupSessionPathCache(cache: Map<string, string>, key: string): Promise<string | undefined> {
+  let cached = cache.get(key);
+  while (cached === undefined) {
+    const generation = globalThis.__piSessionListGeneration ?? 0;
+    await listAllSessions();
+    cached = cache.get(key);
+    // 被失效的扫描没有填充路径缓存，不能据此判定不存在。
+    if ((globalThis.__piSessionListGeneration ?? 0) === generation) break;
+  }
+  return cached;
 }
 
-export async function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {
-  const pathKey = sessionPathKey(filePath);
-  const cached = getPathToIdCache().get(pathKey);
-  if (cached) return cached;
+export async function resolveSessionPath(sessionId: string): Promise<string | null> {
+  return await lookupSessionPathCache(getPathCache(), sessionId) ?? null;
+}
 
-  await listAllSessions();
-  return getPathToIdCache().get(pathKey);
+export function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {
+  return lookupSessionPathCache(getPathToIdCache(), sessionPathKey(filePath));
 }
 
 export function cacheSessionPath(sessionId: string, filePath: string): void {

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type SessionTreeNode as PiTreeNode } from "@earendil-works/pi-coding-agent";
+import type { SessionTreeEntry, SessionTreeEntryPreview, SessionTreeNode } from "./protocol/types";
 import { AgentProtocolError } from "./protocol/validate";
 import { autoNameRpcSession, type AgentRuntime } from "../rpc-manager";
 import {
@@ -20,20 +21,41 @@ import { setSidebarPin } from "../sidebar-pins";
 // BranchNavigator 仍递归遍历；响应层保持浅树。
 const MAX_PROJECTED_TREE_DEPTH = 200;
 
-interface NavNode {
-  entry: { id: string };
-  children: NavNode[];
-  compressedEntryIds?: string[];
+const MAX_BRANCH_LABEL_LENGTH = 40;
+
+function previewEntry(entry: PiTreeNode["entry"]): SessionTreeEntryPreview {
+  const { id, type } = entry;
+  if (type !== "message") return { id, type };
+
+  const { message } = entry;
+  const content = "content" in message ? message.content : undefined;
+  let text = typeof content === "string" ? content : "";
+  if (Array.isArray(content)) {
+    let separator = "";
+    for (const block of content) {
+      if (block?.type !== "text") continue;
+      // 多读一位判断是否需要省略号；不拼接完整的工具输出。
+      const remaining = MAX_BRANCH_LABEL_LENGTH + 1 - text.length - separator.length;
+      text += separator + (typeof block.text === "string" ? block.text.slice(0, remaining) : "");
+      if (text.length > MAX_BRANCH_LABEL_LENGTH) break;
+      separator = " ";
+    }
+  }
+  if (text.length > MAX_BRANCH_LABEL_LENGTH) text = text.slice(0, MAX_BRANCH_LABEL_LENGTH) + "…";
+  return { id, type, message: { role: message.role, content: text } };
 }
 
 /**
  * 把会话树投影成客户端导航用的浅树：保留根、分支点与叶子，
  * 单子节点链被压缩，链上的 entry ID 附到下一个可见节点。
  */
-function projectTreeForResponse(nodes: NavNode[]): NavNode[] {
-  const keep = new Set<NavNode>();
+function projectTreeForResponse<Entry extends SessionTreeEntry>(
+  nodes: PiTreeNode[],
+  projectEntry: (entry: PiTreeNode["entry"]) => Entry,
+): SessionTreeNode<Entry>[] {
+  const keep = new Set<PiTreeNode>();
   const roots = new Set(nodes);
-  const seen = new Set<NavNode>();
+  const seen = new Set<PiTreeNode>();
   const stack = [...nodes];
 
   while (stack.length > 0) {
@@ -44,22 +66,24 @@ function projectTreeForResponse(nodes: NavNode[]): NavNode[] {
     for (const child of node.children) stack.push(child);
   }
 
-  const cloneNode = (node: NavNode, compressedEntryIds?: string[]): NavNode => ({
-    ...node,
+  const projectNode = (node: PiTreeNode, compressedEntryIds?: string[]): SessionTreeNode<Entry> => ({
+    entry: projectEntry(node.entry),
     children: [],
+    label: node.label,
+    labelTimestamp: node.labelTimestamp,
     ...(compressedEntryIds?.length ? { compressedEntryIds } : {}),
   });
-  const projectedRoots = nodes.map((node) => cloneNode(node));
+  const projectedRoots = nodes.map((node) => projectNode(node));
   const tasks = nodes.map((source, index) => ({ source, projected: projectedRoots[index], depth: 1 }));
 
-  const appendFlattenedKeptDescendants = (source: NavNode, projectedParent: NavNode) => {
+  const appendFlattenedKeptDescendants = (source: PiTreeNode, projectedParent: SessionTreeNode<Entry>) => {
     const pending = [{ node: source, compressedEntryIds: [] as string[] }];
-    const flattenedSeen = new Set<NavNode>();
+    const flattenedSeen = new Set<PiTreeNode>();
     while (pending.length > 0) {
       const { node, compressedEntryIds } = pending.pop()!;
       if (flattenedSeen.has(node)) continue;
       flattenedSeen.add(node);
-      if (keep.has(node)) projectedParent.children.push(cloneNode(node, compressedEntryIds));
+      if (keep.has(node)) projectedParent.children.push(projectNode(node, compressedEntryIds));
       for (let i = node.children.length - 1; i >= 0; i--) {
         pending.push({
           node: node.children[i],
@@ -83,7 +107,7 @@ function projectTreeForResponse(nodes: NavNode[]): NavNode[] {
         child = child.children[0];
       }
       if (!keep.has(child)) continue;
-      const projectedChild = cloneNode(child, compressedEntryIds);
+      const projectedChild = projectNode(child, compressedEntryIds);
       projected.children.push(projectedChild);
       tasks.push({ source: child, projected: projectedChild, depth: depth + 1 });
     }
@@ -118,6 +142,7 @@ export async function listSessionTitles(ids: unknown): Promise<Awaited<ReturnTyp
 export interface SessionViewOptions {
   deferThinking?: boolean;
   deferToolResultImages?: boolean;
+  tree?: "preview";
 }
 
 /** 只读历史视图：不创建运行实例，避免与活跃 writer 竞争同一 JSONL。 */
@@ -126,7 +151,10 @@ export async function readSessionView(id: string, options: SessionViewOptions = 
   const manager = SessionManager.open(filePath);
   const entries = manager.getEntries() as never;
   const leafId = manager.getLeafId();
-  const tree = projectTreeForResponse(manager.getTree() as unknown as NavNode[]);
+  const nodes = manager.getTree();
+  const tree = options.tree === "preview"
+    ? projectTreeForResponse(nodes, previewEntry)
+    : projectTreeForResponse(nodes, (entry) => entry);
   const context = buildSessionContext(entries, leafId, {
     deferThinking: Boolean(options.deferThinking),
     deferToolResultImages: Boolean(options.deferToolResultImages),
@@ -193,12 +221,15 @@ export async function deleteSession(id: string, runtime: AgentRuntime): Promise<
     for (const file of files) {
       const childPath = join(directory, file);
       try {
-        const lines = readFileSync(childPath, "utf8").split("\n");
-        const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-        if (header.type === "session" && header.parentSession && sessionPathKey(header.parentSession) === targetPathKey) {
+        const header = readSessionHeader(childPath);
+        if (header?.parentSession && sessionPathKey(header.parentSession) === targetPathKey) {
+          const transcript = readFileSync(childPath);
+          const newline = transcript.indexOf(10);
+          const headerEnd = newline > 0 && transcript[newline - 1] === 13 ? newline - 1 : newline;
           header.parentSession = parentSessionPath;
-          lines[0] = JSON.stringify(header);
-          writeFileSync(childPath, lines.join("\n"));
+          const updatedHeader = Buffer.from(JSON.stringify(header));
+          writeFileSync(childPath, headerEnd < 0
+            ? updatedHeader : Buffer.concat([updatedHeader, transcript.subarray(headerEnd)]));
         }
       } catch { /* 跳过损坏的子会话 */ }
     }

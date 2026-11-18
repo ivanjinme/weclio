@@ -283,12 +283,7 @@ export type SessionEntry =
 
 export type FileEntry = SessionHeader | SessionEntry;
 
-export interface SessionTreeNode {
-  entry: SessionEntry;
-  children: SessionTreeNode[];
-  label?: string;
-  compressedEntryIds?: string[];
-}
+export type { SessionTreeNode } from "./agent/protocol/types";
 
 export interface SessionInfo {
   path: string;

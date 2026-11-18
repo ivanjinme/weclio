@@ -4,7 +4,7 @@ import { useMemo, type MouseEvent } from "react";
 import { ResourceImage } from "./ResourceImage";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref } from "@/lib/file-links";
-import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 import type { Citation } from "@/lib/types";
 
@@ -19,7 +19,7 @@ interface MarkdownBodyProps {
 }
 
 export function MarkdownBody({ children, className, isStreaming, cwd, sessionId, onOpenFile, citations }: MarkdownBodyProps) {
-  const normalizedMarkdown = useMemo(() => normalizeDisplayMath(stripCitationTokens(children)), [children]);
+  const markdown = useMemo(() => stripCitationTokens(children), [children]);
   const safeCitations = useMemo(() => {
     const seen = new Set<string>();
     return (citations ?? []).flatMap((citation) => {
@@ -104,7 +104,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, sessionId,
         urlTransform={markdownUrlTransform}
         components={components}
       >
-        {normalizedMarkdown}
+        {markdown}
       </ReactMarkdown>
       {safeCitations.length > 0 && (
         <div className="markdown-citations">

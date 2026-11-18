@@ -618,12 +618,13 @@ export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProject
                 );
               };
 
-              const rendered: ReactNode[] = [];
+              // 先按展示行计数，再生成当前页的 React 元素；折叠的过程组只占一行。
+              const rows: (number | (() => ReactNode))[] = [];
               let latestTurnStart: number | null = null;
               for (let idx = 0; idx < messages.length;) {
                 const msg = messages[idx];
                 if (!isGroupAnchor(msg)) {
-                  rendered.push(renderMessage(idx));
+                  rows.push(idx);
                   idx += 1;
                   continue;
                 }
@@ -634,13 +635,13 @@ export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProject
 
                 const isLatestTurn = endIdx === messages.length && userIdx === lastAnchorIdx;
                 const isLiveTail = (sessionBusy || streamState.isStreaming) && isLatestTurn;
-                if (isLatestTurn) latestTurnStart = rendered.length;
+                if (isLatestTurn) latestTurnStart = rows.length;
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
 
                 if (finalAssistantIdx === -1) {
                   for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx));
+                    rows.push(renderIdx);
                   }
                   idx = endIdx;
                   continue;
@@ -648,13 +649,13 @@ export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProject
 
                 if (isLiveTail) {
                   for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                    rendered.push(renderMessage(renderIdx, { showActions: false }));
+                    rows.push(() => renderMessage(renderIdx, { showActions: false }));
                   }
                   idx = endIdx;
                   continue;
                 }
 
-                rendered.push(renderMessage(userIdx));
+                rows.push(userIdx);
 
                 const processIndices: number[] = [];
                 for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
@@ -679,48 +680,47 @@ export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProject
 
                 const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
                 if (processCount > 0) {
-                  const processRefIdx = visibleProcessIndices
-                    .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
-                    .find((value): value is number => typeof value === "number")
-                    ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
-                  const processGroup = (
-                    <ProcessDetailsGroup
-                      durationMs={finalAssistant.timestamp! - msg.timestamp!}
-                      t={t}
-                      toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-                    >
-                      {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", showActions: false, showNotices: false }))}
-                      {finalProcessMessage && renderMessage(finalAssistantIdx, {
-                        attachRef: false,
-                        keyPrefix: "process-final",
-                        messageOverride: finalProcessMessage,
-                        showTimestamp: false,
-                        allowFork: !finalAnswerMessage,
-                        showActions: false,
-                        showNotices: false,
-                      })}
-                    </ProcessDetailsGroup>
-                  );
-                  rendered.push(
-                    <div
-                      key={`process-group-${userIdx}-${finalAssistantIdx}`}
-                      ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
-                    >
-                      {processGroup}
-                    </div>,
-                  );
+                  rows.push(() => {
+                    const processRefIdx = visibleProcessIndices
+                      .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
+                      .find((value): value is number => typeof value === "number")
+                      ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
+                    return (
+                      <div
+                        key={`process-group-${userIdx}-${finalAssistantIdx}`}
+                        ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
+                      >
+                        <ProcessDetailsGroup
+                          durationMs={finalAssistant.timestamp! - msg.timestamp!}
+                          t={t}
+                          toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
+                        >
+                          {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process", showActions: false, showNotices: false }))}
+                          {finalProcessMessage && renderMessage(finalAssistantIdx, {
+                            attachRef: false,
+                            keyPrefix: "process-final",
+                            messageOverride: finalProcessMessage,
+                            showTimestamp: false,
+                            allowFork: !finalAnswerMessage,
+                            showActions: false,
+                            showNotices: false,
+                          })}
+                        </ProcessDetailsGroup>
+                      </div>
+                    );
+                  });
                 }
 
                 if (finalAnswerMessage) {
-                  rendered.push(renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
+                  rows.push(() => renderMessage(finalAssistantIdx, { messageOverride: finalAnswerMessage }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-                  rendered.push(renderMessage(renderIdx));
+                  rows.push(renderIdx);
                 }
                 idx = endIdx;
               }
-              const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
-              const visible = rendered.slice(startIndex);
+              const { startIndex, hasMore } = getVisibleRenderWindow(rows.length, visibleCount);
+              const visible = rows.slice(startIndex).map((row) => typeof row === "number" ? renderMessage(row) : row());
               const latestStart = latestTurnStart === null ? -1 : Math.max(0, latestTurnStart - startIndex);
               const liveOutput = (
                 <>

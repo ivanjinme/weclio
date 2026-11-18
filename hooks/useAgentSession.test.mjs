@@ -21,7 +21,7 @@ test("successful compaction events refresh live state as well as messages", () =
   );
 
   assert.match(compactEnd, /else if \(!event\.aborted\)/);
-  assert.match(compactEnd, /loadSession\(sessionIdRef\.current, false, true\)/);
+  assert.match(compactEnd, /loadSession\(sid, false, true, isCurrent\)/);
 });
 
 test("session state reload accepts unknown post-compaction usage instead of retaining the old percentage", () => {
@@ -31,6 +31,6 @@ test("session state reload accepts unknown post-compaction usage instead of reta
   );
 
   assert.match(loadSession, /if \(!includeState\) return null/);
-  assert.match(loadSession, /if \(sessionIdRef\.current !== sid\) return null/);
+  assert.match(loadSession, /if \(sessionIdRef\.current !== sid \|\| !isCurrent\(\)\) return null/);
   assert.match(loadSession, /if \(liveState\.contextUsage !== undefined\) setContextUsage\(liveState\.contextUsage \?\? null\)/);
 });

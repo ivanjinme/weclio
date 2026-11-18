@@ -427,10 +427,10 @@ export class AgentSessionWrapper {
         // Fire and forget — events come via subscribe
         const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
-        this.promptRunning = true;
-        this.replySucceeded = false;
         // 在 SDK 异步预检前让新会话可发现；首个 user message 后由 SDK 正常持久化。
         this.persistPendingSession();
+        this.promptRunning = true;
+        this.replySucceeded = false;
         invalidateSessionListCache();
         this.notify();
         const finishPrompt = this.reserveTask();

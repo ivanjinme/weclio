@@ -44,10 +44,6 @@ class HttpError extends Error {
   }
 }
 
-export function skillUpdateKey(install: Pick<SkillInstallInfo, "scope" | "package">): string {
-  return `${install.scope}\0${install.package}`;
-}
-
 export function buildSkillUpdateArgs(install: SkillInstallInfo): string[] {
   const folder = skillFolder(install.skillPath ?? "");
   const source = folder ? `${install.source}/${folder}` : install.source;
@@ -117,10 +113,17 @@ async function fetchJson(
   return response.json();
 }
 
-async function resolveGitTreeHash(install: SkillInstallInfo): Promise<string> {
-  const repository = `https://github.com/${install.source}.git`;
-  const ref = install.ref || "HEAD";
-  const folder = skillFolder(install.skillPath!);
+async function cleanupGitTree(gitDir: string): Promise<void> {
+  try {
+    await rm(gitDir, { recursive: true, force: true });
+  } catch (error) {
+    // 清理失败不应覆盖已有的版本校验结果或 Git 错误。
+    console.error("[weclio] failed to remove temporary skill check repository:", gitDir, error);
+  }
+}
+
+async function fetchGitTree(source: string, ref: string): Promise<string> {
+  const repository = `https://github.com/${source}.git`;
   const gitDir = await mkdtemp(join(tmpdir(), "weclio-skill-check-"));
 
   try {
@@ -136,17 +139,42 @@ async function resolveGitTreeHash(install: SkillInstallInfo): Promise<string> {
       repository,
       ref,
     ], { timeout: GIT_CHECK_TIMEOUT_MS });
-    const revision = folder ? `FETCH_HEAD:${folder}` : "FETCH_HEAD^{tree}";
-    const { stdout } = await execFileAsync(
-      "git",
-      [`--git-dir=${gitDir}`, "rev-parse", revision],
-      { timeout: GIT_CHECK_TIMEOUT_MS },
-    );
-    const hash = stdout.trim();
-    if (!/^[0-9a-f]{40}$/i.test(hash)) throw new Error("Invalid Git tree hash");
-    return hash;
+    return gitDir;
+  } catch (error) {
+    await cleanupGitTree(gitDir);
+    throw error;
+  }
+}
+
+async function withGitTreeResolver<T>(check: (resolveTree: GitTreeResolver) => Promise<T>): Promise<T> {
+  // 仅在本次检查中共享拉取结果；每个 skill 单独解析自己的路径。
+  const fetched = new Map<string, Promise<string>>();
+  try {
+    return await check(async (install) => {
+      const ref = install.ref || "HEAD";
+      const key = JSON.stringify([install.source, ref]);
+      let request = fetched.get(key);
+      if (!request) {
+        request = fetchGitTree(install.source, ref);
+        fetched.set(key, request);
+      }
+      const gitDir = await request;
+      const folder = skillFolder(install.skillPath!);
+      const revision = folder ? `FETCH_HEAD:${folder}` : "FETCH_HEAD^{tree}";
+      const { stdout } = await execFileAsync(
+        "git",
+        [`--git-dir=${gitDir}`, "rev-parse", "--verify", revision],
+        { timeout: GIT_CHECK_TIMEOUT_MS },
+      );
+      const hash = stdout.trim();
+      if (!/^[0-9a-f]{40}$/i.test(hash)) throw new Error("Invalid Git tree hash");
+      return hash;
+    });
   } finally {
-    await rm(gitDir, { recursive: true, force: true });
+    const trees = await Promise.allSettled(fetched.values());
+    await Promise.all(trees.map((tree) => tree.status === "fulfilled"
+      ? cleanupGitTree(tree.value)
+      : undefined));
   }
 }
 
@@ -222,7 +250,7 @@ export async function checkSkillUpdate(
     ...options,
     fetcher: options.fetcher ?? fetch,
     skillsApiBase: options.skillsApiBase ?? DEFAULT_SKILLS_API_BASE,
-    resolveGitTreeHash: options.resolveGitTreeHash ?? resolveGitTreeHash,
+    resolveGitTreeHash: options.resolveGitTreeHash ?? ((skill) => withGitTreeResolver((resolveTree) => resolveTree(skill))),
   };
 
   try {
@@ -254,10 +282,12 @@ export async function checkSkillUpdates(
     return (await request).clone();
   };
 
-  return Promise.all(
+  const check = (resolveGitTreeHash: GitTreeResolver) => Promise.all(
     installs.map((install) => checkSkillUpdate(install, {
       ...options,
       fetcher: cachedFetcher,
+      resolveGitTreeHash,
     })),
   );
+  return options.resolveGitTreeHash ? check(options.resolveGitTreeHash) : withGitTreeResolver(check);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from "react";
 import { getFileIcon, FolderIcon } from "./FileIcons";
 import {
   encodeFilePathForApi,
@@ -73,7 +73,12 @@ interface UploadSummary {
   errors: UploadError[];
 }
 
+interface UploadScope {
+  cwd: string;
+}
+
 interface PendingConflict {
+  scope: UploadScope;
   files: File[];
   conflicts: string[];
   nonReplaceable: string[];
@@ -548,6 +553,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
+  const uploadScopeRef = useRef<UploadScope | null>(null);
+  useLayoutEffect(() => {
+    // 已发出的上传仍属于原项目；切换后不再应用结果或继续预检流程。
+    uploadScopeRef.current = { cwd };
+    setUploadSummary(null);
+    setPendingConflict(null);
+    setUploadError(null);
+    setUploadProgress(0);
+    setUploadPhase("idle");
+    return () => { uploadScopeRef.current = null; };
+  }, [cwd]);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
@@ -582,51 +598,56 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
   }, []);
 
-  const applyUploadResult = useCallback((data: UploadResponse) => {
-    const uploaded = data.uploaded ?? [];
-    const skipped = data.skipped ?? [];
-    const errors = data.errors ?? [];
-    setUploadSummary({ uploaded, skipped, errors });
-
-    if (uploaded.length > 0) {
-      setHighlightedPaths(new Set(uploaded.map((name) => joinFilePath(cwd, name))));
-      setTreeRefreshKey((key) => key + 1);
-    }
-  }, [cwd]);
-
   const performUpload = useCallback(async (
+    scope: UploadScope,
     files: File[],
     strategy: UploadConflictStrategy,
   ) => {
+    if (scope !== uploadScopeRef.current) return;
     setPendingConflict(null);
     setUploadError(null);
     setUploadProgress(0);
     setUploadPhase("uploading");
 
     try {
-      const { status, data } = await uploadFiles(cwd, files, strategy, setUploadProgress);
+      const { status, data } = await uploadFiles(scope.cwd, files, strategy, (progress) => {
+        if (scope === uploadScopeRef.current) setUploadProgress(progress);
+      });
+      const uploaded = data.uploaded ?? [];
+      const succeeded = status >= 200 && status < 300;
+      const currentScope = uploadScopeRef.current;
+      // 返回原项目后仍需刷新已写入的文件，但不恢复旧上传反馈。
+      if (succeeded && uploaded.length > 0 && currentScope?.cwd === scope.cwd) {
+        setTreeRefreshKey((key) => key + 1);
+      }
+      if (scope !== currentScope) return;
       if (status === 409 && data.conflicts?.length) {
         setPendingConflict({
+          scope,
           files,
           conflicts: data.conflicts,
           nonReplaceable: data.nonReplaceable ?? [],
         });
         return;
       }
-      if (status < 200 || status >= 300) {
-        throw new Error(data.error ?? `Upload failed (HTTP ${status})`);
-      }
+      if (!succeeded) throw new Error(data.error ?? `Upload failed (HTTP ${status})`);
       setUploadProgress(100);
-      applyUploadResult(data);
+      setUploadSummary({ uploaded, skipped: data.skipped ?? [], errors: data.errors ?? [] });
+      if (uploaded.length > 0) {
+        setHighlightedPaths(new Set(uploaded.map((name) => joinFilePath(scope.cwd, name))));
+      }
     } catch (uploadFailure) {
-      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      if (scope === uploadScopeRef.current) {
+        setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      }
     } finally {
-      setUploadPhase("idle");
+      if (scope === uploadScopeRef.current) setUploadPhase("idle");
     }
-  }, [applyUploadResult, cwd]);
+  }, []);
 
   const prepareUpload = useCallback(async (files: File[]) => {
-    if (files.length === 0 || uploadBusy) return;
+    const scope = uploadScopeRef.current;
+    if (!scope || scope.cwd !== cwd || files.length === 0 || uploadBusy) return;
     setUploadSummary(null);
     setHighlightedPaths(new Set());
     setPendingConflict(null);
@@ -636,7 +657,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
     try {
       const res = await apiFetch(
-        apiUrl(`/files/${encodeFilePathForApi(cwd)}?type=upload-check`),
+        apiUrl(`/files/${encodeFilePathForApi(scope.cwd)}?type=upload-check`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -644,10 +665,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         },
       );
       const data = await res.json().catch(() => ({})) as UploadResponse;
+      if (scope !== uploadScopeRef.current) return;
       if (!res.ok) throw new Error(data.error ?? `Upload check failed (HTTP ${res.status})`);
 
       if (data.conflicts?.length) {
         setPendingConflict({
+          scope,
           files,
           conflicts: data.conflicts,
           nonReplaceable: data.nonReplaceable ?? [],
@@ -655,11 +678,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         return;
       }
 
-      await performUpload(files, "error");
+      await performUpload(scope, files, "error");
     } catch (uploadFailure) {
-      setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      if (scope === uploadScopeRef.current) {
+        setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
+      }
     } finally {
-      setUploadPhase("idle");
+      if (scope === uploadScopeRef.current) setUploadPhase("idle");
     }
   }, [cwd, performUpload, uploadBusy]);
 
@@ -689,9 +714,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     if (cwdChanged) {
       setExpandedPaths(new Set());
       setHighlightedPaths(new Set());
-      setUploadSummary(null);
-      setPendingConflict(null);
-      setUploadError(null);
     }
 
     setLoading(cwdChanged);
@@ -777,10 +799,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               </div>
             )}
             <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUpload(pendingConflict.scope, pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
                 {t("files.replace")}
               </button>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUpload(pendingConflict.scope, pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
                 {t("files.skipExisting")}
               </button>
               <button type="button" onClick={() => setPendingConflict(null)} style={{ height: 22, padding: "0 7px", border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 10 }}>

@@ -55,7 +55,7 @@ GET    /v1/resources/content?ticket=...   只读票据兑换；支持 Range
 HEAD   /v1/resources/content?ticket=...   完整表示的头，无响应体
 POST   /v1/sessions                      创建/ensure 会话；返回真实 sessionId
 GET    /v1/sessions                      目录 + 运行中 ID
-GET    /v1/sessions/:id                  历史视图（?deferThinking / ?deferMedia）
+GET    /v1/sessions/:id                  历史视图（?deferThinking / ?deferMedia / ?tree=preview）
 GET    /v1/sessions/:id/state            运行态（不创建实例）
 GET    /v1/sessions/:id/events           会话事件 SSE（id=seq，支持 Last-Event-ID）
 PATCH  /v1/sessions/:id                  改名 { name }
@@ -108,6 +108,11 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 - 仅绑定回环地址；非回环在 A2.1 直接拒绝启动。
 - 同一 `stateDir` 只允许一个写入者；属主进程存活时第二个实例拒绝启动。
 - 会话查询与 mutation 已就位；files / git / settings 随 A2.2b–c 补齐；事件流与重连统一在 A3.2 实现。
+
+`GET /v1/sessions/:id` 默认保留 v1 树节点的完整 `entry`。显式传入 `tree=preview` 时，
+`tree` 保留相同的节点结构、ID、压缩链和书签，但每个 `entry` 仅返回 `id`、`type`，
+消息另带角色与标签文本预览。该选项不改变 `context`。旧版 Service 会忽略该参数，
+使用预览的客户端仍须支持完整树节点。
 
 ### 4.1 客户端实际使用的端点
 

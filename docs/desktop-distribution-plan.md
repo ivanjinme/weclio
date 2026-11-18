@@ -10,17 +10,17 @@
 Weclio
 ├── Desktop Distribution
 │   ├── Electron + Static React UI
-│   └── Local Agent Service + Pi SDK + bundled Node/npm + Coding Tools
+│   └── Local Agent Service + Pi SDK + Coding Tools（运行于系统 Node.js）
 ├── Web Distribution
 │   └── React UI（可保留 Next，自有 Web 服务端职责按需保留）
 └── Agent Service Distribution
-    └── Node Runtime + Service + Pi SDK + 对应平台 Coding Tools
+    └── Service + Pi SDK + 对应平台 Coding Tools（运行于环境提供的 Node.js）
 ```
 
 - 三类产物分别构建部署，复用必要 Protocol/Client/组件与同一 Service 源码；**不是三个独立业务实现**。
 - **已确认：Desktop 使用 Vite 静态 React，Web 保留 Next。** Desktop 不携带/启动 Next Server，不为统一工具链迁移 Web。
-- Service 与 Pi 同一 Node 进程，独立于 Electron；**采用捆绑受支持 Node Runtime**，不是要求用户先安装 Node，也不以 Electron utilityProcess/IPC 另造 Agent 协议。
-- **硬约束：不得用 Electron 二进制（`ELECTRON_RUN_AS_NODE`）承载 Agent Service。** 独立性优先于包体积：同一份 Service 产物必须能被普通 Node 运行时启动，否则无法部署到 VM，违反「Service 不依赖 Electron」。Desktop 的 Local Service 用随包捆绑的 Runtime 启动；Remote 用镜像/系统 Node 启动，两者是同一产物。
+- Service 与 Pi 同一 Node 进程，独立于 Electron。Desktop 使用已安装的系统 Node.js，不捆绑 Node/npm，也不通过 Electron utilityProcess/IPC 另造 Agent 协议。
+- **硬约束：不得用 Electron 二进制（`ELECTRON_RUN_AS_NODE`）承载 Agent Service。** 同一份 Service 产物必须能由标准 Node.js 启动，才能在 Desktop 和未来的 VM/容器环境中复用。
 - Desktop/Web/Remote Service 可独立发布；内置 Local Service 初期随 Desktop 完整安装包更新并联合测试，**不新增 Local Service 第二条热更新链**。
 - 保留 Builder/NSIS、可靠的签名更新与用户数据语义；静态 UI origin 与 Service endpoint 分离，未来连接 Remote 不等于加载远端网页。
 - **本期只落实 Local 分发。** Remote VM/容器为未来架构方向，当前不部署真实环境、不建设 Remote 运维/升级体系；相关验证不阻塞本地主线。
@@ -35,7 +35,7 @@ Weclio
 | **Keep** | [`builder.json`](../electron/builder.json)：Windows x64、NSIS、稳定 appId、非管理员安装、ASAR 外服务、卸载不删用户数据 | 不换安装框架；Node 与 Electron native ABI 分别验收，不能只依赖 `npmRebuild:false` |
 | **Keep + Refactor** | [`AppShell`](../components/AppShell.tsx) 用 `next/navigation`，[`MarkdownEditor`](../components/MarkdownEditor.tsx) 用 `next/dynamic`，[`layout`](../app/layout.tsx) 用 Next font；UI 网络分散 | 保留成熟组件、编辑器、草稿/消息状态；只改导航/懒加载/字体/Client 和构建入口 |
 | **Keep + Refactor** | [`main`](../electron/main.mjs)/[`navigation`](../electron/navigation.mjs)/[`preload`](../electron/preload.cjs)/[`updates`](../electron/updates.mjs) 有 sandbox、导航、permissions、IPC sender 校验，信任当前 HTTP origin | 静态 origin 必须同步更新校验；Remote 地址不能扩展 preload/主窗口信任范围 |
-| **Keep + Refactor** | [`toolsets.mjs`](../electron/toolsets.mjs) 的路径/哈希/缓存；[`packages.mjs`](../electron/packages.mjs) 的离线播种、锁、receipt 和不覆盖选择 | 复用机制，扩展 Runtime/tools 清单及缓存复验；播种变成 Service 初始化，Remote 不依赖 Electron |
+| **Keep + Refactor** | [`toolsets.mjs`](../electron/toolsets.mjs) 的路径/哈希/缓存；旧 `packages.mjs` 的离线播种、锁、receipt 和不覆盖选择 | 工具清单与缓存校验机制保留；旧的首次启动包播种功能后来已移除 |
 | **Refactor** | [updater](../electron/updates.mjs) 从 `resources/server/package.json` require 生产依赖 | 依赖属于 Desktop host，必须在删除旧 server 前独立，避免更新功能失效 |
 | **Refactor** | [`main.mjs`](../electron/main.mjs) 退出停服务；[`production.mjs`](../electron/production.mjs) Windows `taskkill /T /F`；只有单个本地 URL | 改为明确管理自有 Local 进程及安全关停；退出/后台产品策略到 B3 决定，不默认增加提醒或常驻管理 |
 | **Keep + Refactor** | [Ed25519 manifest](../electron/update-signature.mjs)、[EXE SHA512/大小复验](../electron/updates.mjs)、[显式安装/gate/draft veto/失败恢复](../electron/update-install.mjs) | 保留信任链；gate 目前主要覆盖 `rpc-manager`，Skills/Plugins 安装也必须纳入 Service admission |
@@ -166,7 +166,7 @@ Weclio
 
 - **模块/修改：** scripts/manifest/lock、`build/builder/package-files/release`、`.github/workflows`。分别构建 Desktop 静态 UI/host、Web UI、Service；正式入口暂不切换，CI 显式生成候选产物。
 - **布局：** `app.asar` 放 host/updater deps+静态 UI；`resources/agent-service` 放 Service/production deps/SDK assets；`resources/runtime/<platform>` 放 Node/npm/tools；保留更新 trust config。state/Pi 数据/凭据/用户包/workspace 全在用户数据区或持久卷。
-- **来源：** clean checkout+锁定生产安装，CI 指定权威 npm 锁路径，清理 npm/bun 双锁职责；记录 commit、协议/Runtime/tools 版本、摘要、生产 closure、许可证/NOTICE。保留隔离 build/fingerprint，但 fingerprint 不是来源签名，不从开发 HOME/.env 取发布资源。
+- **来源：** clean checkout+锁定生产安装，CI 指定权威 npm 锁路径，以 `package-lock.json` 为唯一依赖锁；记录 commit、协议/Runtime/tools 版本、摘要、生产 closure、许可证/NOTICE。保留隔离 build/fingerprint，但 fingerprint 不是来源签名，不从开发 HOME/.env 取发布资源。
 - **依赖：** B1 + B2；可与 B3 并行，生命周期/更新集成测试消费候选产物。保留 Builder/NSIS/appId/用户数据策略；不必兼容旧脚本内部结构。
 - **风险/收益：** 提前验证产物而非在切换 PR 才发现缺包；native/WASM、updater 依赖、缓存与跨平台资源须检查。
 - **测试/验收：** CI checks→独立 Service Windows smoke→静态 UI/packaged smoke→隔离 Windows NSIS clean install。测试机/测试 VM 用于安装验收，不是部署 Remote Agent；Linux/Remote 运行验收随 A4 再做。生成独立 Service 包与候选 Desktop；生产依赖不借开发 node_modules，不含真实凭据；不自动公开 release。

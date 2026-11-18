@@ -59,6 +59,25 @@ export interface SlashCommandInfo {
   };
 }
 
+export interface SessionTreeEntry {
+  id: string;
+  type: string;
+  message?: { role: string; content?: unknown };
+}
+
+/** 仅包含分支标签所需的文本预览，不用于回放。 */
+export interface SessionTreeEntryPreview extends SessionTreeEntry {
+  message?: { role: string; content: string };
+}
+
+export interface SessionTreeNode<Entry extends SessionTreeEntry = SessionTreeEntry> {
+  entry: Entry;
+  children: SessionTreeNode<Entry>[];
+  label?: string;
+  labelTimestamp?: string;
+  compressedEntryIds?: string[];
+}
+
 // 只声明客户端消费的压缩结果字段，不将 SDK 的持久化结构带进协议。
 export interface CompactCommandResult {
   tokensBefore?: number;

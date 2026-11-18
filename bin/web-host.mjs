@@ -141,12 +141,14 @@ export async function runWeb(root, { hostname, port, openBrowser: autoOpen, atta
     process.chdir(root);
     const next = createRequire(join(root, "package.json"))("next");
     const app = next({ dir: root, dev: false, hostname, port: server.address().port, httpServer: server });
-    await Promise.race([app.prepare(), ...failures]);
+    abort.signal.throwIfAborted();
+    const shutdown = once(abort.signal, "abort");
+    await Promise.race([app.prepare(), shutdown, ...failures]);
     abort.signal.throwIfAborted();
     nextHandler = app.getRequestHandler();
     console.log(`Weclio ready: ${origin}`);
     if (autoOpen) openBrowser(origin);
-    await Promise.race([once(abort.signal, "abort"), ...failures]);
+    await Promise.race([shutdown, ...failures]);
   } catch (error) {
     if (!abort.signal.aborted) throw error;
   } finally {

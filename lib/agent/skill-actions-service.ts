@@ -17,6 +17,7 @@ const ANSI_PATTERN = new RegExp(String.raw`\x1B\[[0-9;]*m`, "g");
 const DEFAULT_LIMIT = 50;
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 50;
+const SEARCH_API_TIMEOUT_MS = 5_000;
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || "https://skills.sh";
 
 /** 安装/更新是外部子进程，必须占用执行准入。 */
@@ -60,7 +61,8 @@ export async function setSkillModelInvocation(body: unknown): Promise<void> {
   if (!isExistingFilePathAllowed(filePath, allowedRoots)) throw new AgentProtocolError("forbidden", "Access denied");
 
   const content = readFileSync(filePath, "utf8");
-  writeFileSync(filePath, setDisableModelInvocation(content, disableModelInvocation === true), "utf8");
+  const updated = setDisableModelInvocation(content, disableModelInvocation === true);
+  if (updated !== content) writeFileSync(filePath, updated, "utf8");
 }
 
 interface SkillTargetInput {
@@ -225,7 +227,7 @@ export function parseSearchOutput(raw: string): SkillSearchResult[] {
 
 async function searchSkillsApi(query: string, limit: number): Promise<SkillSearchResult[]> {
   const url = `${SEARCH_API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=${limit}`;
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(SEARCH_API_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`skills.sh search failed: HTTP ${res.status}`);
   const data = (await res.json()) as { skills?: SkillsApiSkill[] };
   return (data.skills ?? [])
@@ -245,7 +247,7 @@ async function searchSkillsApi(query: string, limit: number): Promise<SkillSearc
 }
 
 /** 搜索远端 skill：优先 REST API，失败时回退 CLI。 */
-export async function searchSkills(body: { query?: unknown; limit?: unknown }) {
+export async function searchSkills(body: { query?: unknown; limit?: unknown }, runCli = runNpx) {
   const query = typeof body.query === "string" ? body.query.trim() : "";
   if (!query) throw new AgentProtocolError("invalid_argument", "query required");
   const limit = parseLimit(body.limit);
@@ -254,7 +256,7 @@ export async function searchSkills(body: { query?: unknown; limit?: unknown }) {
     return { results: await searchSkillsApi(query, limit) };
   } catch {
     try {
-      const { stdout, stderr } = await runNpx(["skills", "find", query], { timeout: 20000 });
+      const { stdout, stderr } = await runCli(["skills", "find", query], { timeout: 20000 });
       return { results: parseSearchOutput(`${stdout}${stderr}`).slice(0, limit) };
     } catch (error) {
       const detail = error as { stdout?: string; stderr?: string; message?: string };

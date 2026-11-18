@@ -47,7 +47,15 @@ export function createUpdateInstaller({ app, getService, getWindow, getGate, sto
     try { await unlock(); }
     catch (releaseError) { log("[desktop-update] unlock:", releaseError.message); }
     try {
-      await restoreWindow();
+      try { await restoreWindow(); }
+      catch (restoreError) {
+        log("[desktop-update] recovery:", restoreError.message);
+        // 恢复失败后不能无窗口地占用单实例锁；仍在运行的自有 Service 会随控制管道关闭而停止。
+        try {
+          await message("error", "无法恢复 Weclio，应用即将退出，请重新打开 Weclio。", "Weclio could not recover after the update failed. Please reopen Weclio.");
+        } finally { app.exit(1); }
+        return;
+      }
       await message("error", "无法安装更新，请稍后重试。", "The update could not be started. Please try again.");
     } finally { phase = "idle"; }
   }

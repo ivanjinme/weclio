@@ -38,7 +38,7 @@ class FakeWindow extends EventEmitter {
   }
 }
 
-function fixture({ packaged = true, canInstall = true, mode, inspect = "ready", lock = "ready", verify, stop, install, missingGate = false } = {}) {
+function fixture({ packaged = true, canInstall = true, mode, inspect = "ready", lock = "ready", verify, stop, install, restore, missingGate = false } = {}) {
   const events = [];
   const dialogs = [];
   const logs = [];
@@ -71,7 +71,7 @@ function fixture({ packaged = true, canInstall = true, mode, inspect = "ready", 
     },
   };
   const installer = createUpdateInstaller({
-    app: { isPackaged: packaged },
+    app: { isPackaged: packaged, exit: (code) => events.push(`exit:${code}`) },
     getService: () => service,
     getWindow: () => currentWindow,
     getGate: () => missingGate ? undefined : gate,
@@ -81,13 +81,14 @@ function fixture({ packaged = true, canInstall = true, mode, inspect = "ready", 
         const options = args.at(-1);
         dialogs.push(options);
         events.push(`dialog:${options.type}`);
-        if (options.type === "error") errorShown.resolve();
+        if (options.type === "error") errorShown.resolve(args);
         return { response: 0 };
       },
     },
     async restoreWindow() {
       events.push("restore");
       restored += 1;
+      await restore?.();
       if (currentWindow.isDestroyed()) currentWindow = new FakeWindow(events);
     },
     log: (...args) => logs.push(args),
@@ -164,6 +165,20 @@ test("unconfirmed Service exit refuses installer handoff", async () => {
   assert.equal(h.installed, 0);
   assert.equal(h.restored, 1);
   assert.equal(h.dialogs.at(-1).type, "error");
+});
+
+test("failed installer handoff and failed Service recovery report the error and exit instead of staying windowless", async () => {
+  const h = fixture({
+    install() { throw new Error("Installer failed"); },
+    restore() { throw new Error("Replacement Service failed"); },
+  });
+  await h.installer.restart("en");
+  assert.equal(h.currentWindow.isDestroyed(), true);
+  assert.deepEqual(h.events.slice(-3), ["restore", "dialog:error", "exit:1"]);
+  const args = await h.errorShown.promise;
+  assert.equal(args.length, 1, "the error dialog must not be parented to the destroyed window");
+  assert.match(args[0].message, /reopen Weclio/i);
+  assert.equal(h.logs.at(-1).at(-1), "Replacement Service failed");
 });
 
 test("Chinese restart click also hands off without a second confirmation", async () => {

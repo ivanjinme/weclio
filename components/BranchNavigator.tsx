@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import type { SessionEntry, SessionTreeNode } from "@/lib/types";
+import type { SessionTreeNode } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 
 interface Props {
@@ -52,9 +52,10 @@ function compress(node: SessionTreeNode): { node: SessionTreeNode; skipped: numb
   return { node: current, skipped };
 }
 
-function getLabel(entry: SessionEntry): string {
-  if (entry.type === "message" && "message" in entry) {
-    const msg = entry.message as { role: string; content: unknown };
+function getLabel(entry: SessionTreeNode["entry"]): string {
+  if (entry.type === "message" && entry.message) {
+    const msg = entry.message;
+    // 旧 Service 的树仍可能返回原始消息块。
     const content = msg.content;
     let text = "";
     if (typeof content === "string") {
@@ -95,9 +96,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   const isActive = activePathIds.has(rep.entry.id);
   const isOnPath = activePathIds.has(node.entry.id) || activePathIds.has(rep.entry.id);
   const label = getLabel(rep.entry);
-  const role = rep.entry.type === "message" && "message" in rep.entry
-    ? (rep.entry.message as { role: string }).role
-    : null;
+  const role = rep.entry.type === "message" ? rep.entry.message?.role : undefined;
 
   return (
     <div>

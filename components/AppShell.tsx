@@ -100,6 +100,12 @@ function ConfiguredAppShell() {
   const [initialCwdError, setInitialCwdError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [sessionKey, setSessionKey] = useState(0);
+  const sessionKeyRef = useRef<number | null>(null);
+  const remountChat = useCallback(() => {
+    // 导航开始即停用旧聊天的异步回调，不等新聊天提交。
+    sessionKeyRef.current = null;
+    setSessionKey((key) => key + 1);
+  }, []);
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0);
   const [fileDrafts] = useState(() => createFileDraftCoordinator(() => setExplorerRefreshKey((key) => key + 1)));
   const [settingsContext, setSettingsContext] = useState<SettingsContext | null>(null);
@@ -343,11 +349,11 @@ function ConfiguredAppShell() {
       if (prev && prev !== cwd) return null;
       return prev;
     });
-    setSessionKey((k) => k + 1);
+    remountChat();
     // 切换项目清空标签，文件草稿仍由 AppShell 独立持有。
     dispatchArtifact({ type: "reset" });
     router.replace("/", { scroll: false });
-  }, [router, selectedSession]);
+  }, [router, selectedSession, remountChat]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false) => {
     const nextProject = session.cwd;
@@ -366,7 +372,7 @@ function ConfiguredAppShell() {
     setSelectedSession(session);
     // A session owns the entire ChatWindow state graph (messages, SSE, running
     // tools, dialogs, queues, etc.). Remounting is the React-native reset.
-    setSessionKey((key) => key + 1);
+    remountChat();
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
@@ -380,7 +386,7 @@ function ConfiguredAppShell() {
     if (!isRestore) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [router, isMobile]);
+  }, [router, isMobile, remountChat]);
 
   const handleNewSession = useCallback((draftId: string, cwd: string | null) => {
     setSelectedSession(null);
@@ -389,10 +395,10 @@ function ConfiguredAppShell() {
     // project (if any), switchable, or send to fall back to the default workspace.
     setNewTaskShowsProjectPicker(true);
     setNewSessionCwd(cwd);
-    setSessionKey((k) => k + 1);
+    remountChat();
     if (isMobile) setSidebarOpen(false);
     router.replace("/", { scroll: false });
-  }, [router, isMobile]);
+  }, [router, isMobile, remountChat]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -402,27 +408,31 @@ function ConfiguredAppShell() {
 
   // Called by ChatWindow when the first message creates the real pi session.
   const handleSessionCreated = useCallback((session: SessionInfo) => {
+    if (sessionKeyRef.current !== sessionKey) return;
     setNewTaskDraftId(null);
     setNewTaskShowsProjectPicker(false);
     setNewSessionCwd(null);
     setSelectedSession(session);
     setRefreshKey((k) => k + 1);
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [router]);
+  }, [router, sessionKey]);
 
   const handleAgentEnd = useCallback(() => {
+    if (sessionKeyRef.current !== sessionKey) return;
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
-  }, []);
+  }, [sessionKey]);
 
   const handleSessionRenamed = useCallback((name: string) => {
+    if (sessionKeyRef.current !== sessionKey) return;
     setSelectedSession((current) => current ? { ...current, name } : current);
     setRefreshKey((key) => key + 1);
-  }, []);
+  }, [sessionKey]);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
+    if (sessionKeyRef.current !== sessionKey) return;
     setRefreshKey((k) => k + 1);
-    setSessionKey((k) => k + 1);
+    remountChat();
     setNewTaskDraftId(null);
     setNewTaskShowsProjectPicker(false);
     setNewSessionCwd(null);
@@ -431,7 +441,7 @@ function ConfiguredAppShell() {
       id: newSessionId,
     }));
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
-  }, [router]);
+  }, [router, sessionKey, remountChat]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -443,10 +453,10 @@ function ConfiguredAppShell() {
       const cwd = selectedSession.cwd;
       setSelectedSession(null);
       setNewSessionCwd(cwd ?? null);
-      setSessionKey((k) => k + 1);
+      remountChat();
       router.replace("/", { scroll: false });
     }
-  }, [selectedSession, router]);
+  }, [selectedSession, router, remountChat]);
 
   const handleOpenFile = useCallback((
     filePath: string,
@@ -569,13 +579,17 @@ function ConfiguredAppShell() {
     const data = await response.json().catch(() => ({})) as { cwd?: string; error?: string };
     if (!response.ok || !data.cwd) throw new Error(data.error ?? `HTTP ${response.status}`);
     const cwd = data.cwd;
-    handleDraftProjectSelect(cwd);
+    if (sessionKeyRef.current === sessionKey) handleDraftProjectSelect(cwd);
     return cwd;
-  }, [handleDraftProjectSelect]);
+  }, [handleDraftProjectSelect, sessionKey]);
 
   // A selected cwd is required to create a session, but not to compose a draft.
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
   const showChat = selectedSession !== null || newTaskDraftId !== null || effectiveNewSessionCwd !== null;
+  useLayoutEffect(() => {
+    sessionKeyRef.current = showChat ? sessionKey : null;
+    return () => { sessionKeyRef.current = null; };
+  }, [sessionKey, showChat]);
   const projectTrustCwd = selectedSession?.cwd ?? effectiveNewSessionCwd;
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
@@ -588,50 +602,61 @@ function ConfiguredAppShell() {
     if (startupReady) return dismissStartupSplash();
   }, [startupReady]);
 
+  const projectTrustScopeRef = useRef<{ cwd: string } | null>(null);
+  useLayoutEffect(() => {
+    projectTrustScopeRef.current = projectTrustCwd ? { cwd: projectTrustCwd } : null;
+    return () => { projectTrustScopeRef.current = null; };
+  }, [projectTrustCwd]);
+
   useEffect(() => {
     setProjectTrust(null);
     setProjectTrustDialogOpen(false);
     setProjectTrustError(null);
-    if (!projectTrustCwd) return;
+    setProjectTrustBusy(false);
+    const scope = projectTrustScopeRef.current;
+    if (!scope || scope.cwd !== projectTrustCwd) return;
 
     const controller = new AbortController();
-    apiFetch(apiUrl(`/project-trust?cwd=${encodeURIComponent(projectTrustCwd)}`), {
+    apiFetch(apiUrl(`/project-trust?cwd=${encodeURIComponent(scope.cwd)}`), {
       signal: controller.signal,
     })
       .then(async (response) => {
         const data = await response.json() as ProjectTrustStatus & { error?: string };
         if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-        setProjectTrust(data);
+        if (projectTrustScopeRef.current === scope && !controller.signal.aborted) setProjectTrust(data);
       })
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        console.error("Failed to load project trust:", error);
+        if (projectTrustScopeRef.current === scope && !controller.signal.aborted) console.error("Failed to load project trust:", error);
       });
     return () => controller.abort();
   }, [projectTrustCwd]);
 
   const handleTrustProject = useCallback(async () => {
-    if (!projectTrustCwd || projectTrustBusy) return;
+    const scope = projectTrustScopeRef.current;
+    if (!scope || scope.cwd !== projectTrustCwd || projectTrustBusy) return;
     setProjectTrustBusy(true);
     setProjectTrustError(null);
     try {
       const response = await apiFetch(apiUrl("/project-trust"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: projectTrustCwd }),
+        body: JSON.stringify({ cwd: scope.cwd }),
       });
       const data = await response.json() as ProjectTrustStatus & { error?: string };
       if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      if (projectTrustScopeRef.current !== scope) return;
       setProjectTrust(data);
       setProjectTrustDialogOpen(false);
       setModelsRefreshKey((key) => key + 1);
-      setSessionKey((key) => key + 1);
+      remountChat();
     } catch (error) {
-      setProjectTrustError(error instanceof Error ? error.message : String(error));
+      if (projectTrustScopeRef.current === scope) {
+        setProjectTrustError(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      setProjectTrustBusy(false);
+      if (projectTrustScopeRef.current === scope) setProjectTrustBusy(false);
     }
-  }, [projectTrustBusy, projectTrustCwd]);
+  }, [projectTrustBusy, projectTrustCwd, remountChat]);
 
   const activeArtifact = artifactTabs.find((tab) => tab.id === activeArtifactId);
   const activeFileTab = activeArtifact?.kind === "file" ? activeArtifact : null;
@@ -1049,7 +1074,7 @@ function ConfiguredAppShell() {
           setModelsRefreshKey((key) => key + 1);
         }}
         onTrustProject={() => setProjectTrustDialogOpen(true)}
-        onPluginsReloaded={() => setSessionKey((key) => key + 1)}
+        onPluginsReloaded={remountChat}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (

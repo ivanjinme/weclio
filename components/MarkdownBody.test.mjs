@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import ReactMarkdown from "react-markdown";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, {
@@ -10,7 +11,16 @@ const jiti = createJiti(import.meta.url, {
 });
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
-const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
+const { markdownRemarkPlugins } = await jiti.import("../lib/markdown.ts");
+
+function normalizeDisplayMath(markdown) {
+  let source;
+  ReactMarkdown({
+    children: markdown,
+    remarkPlugins: [...markdownRemarkPlugins, () => (_tree, file) => { source = file.toString(); }],
+  });
+  return source;
+}
 
 function renderMarkdown(markdown, citations) {
   return renderToStaticMarkup(
@@ -92,6 +102,13 @@ test("renders multiline custom XML as an XML code block", () => {
   assert.doesNotMatch(html, /<\/?request>/);
 });
 
+test("still sanitizes raw HTML when math normalization reparses the source", () => {
+  const html = renderMarkdown("<strong onclick=\"alert(1)\">value</strong>\n\n\\(x\\)");
+  assert.match(html, /<strong>value<\/strong>/);
+  assert.match(html, /class="katex"/);
+  assert.doesNotMatch(html, /onclick|alert/);
+});
+
 test("renders LaTeX parenthesis delimiters as inline math", () => {
   const html = renderMarkdown(String.raw`射线为 \(r_c = K^{-1}p\)。`);
 
@@ -141,6 +158,12 @@ P(\lambda)=o_b+\lambda r_b
   assert.match(oneLineHtml, /class="katex-display"/);
 });
 
+test("renders dollar-delimited inline and display math", () => {
+  assert.match(renderMarkdown("Inline $x+y$"), /class="katex"/);
+  assert.match(renderMarkdown("$$x+y$$"), /class="katex-display"/);
+  assert.match(renderMarkdown("$$\nx+y\n$$"), /class="katex-display"/);
+});
+
 test("leaves an unmatched LaTeX bracket delimiter unchanged", () => {
   const markdown = String.raw`before
 \[
@@ -156,10 +179,85 @@ test("does not normalize LaTeX delimiters inside Markdown code", () => {
   assert.equal(normalizeDisplayMath(markdown), markdown);
 });
 
+test("preserves fenced code in block quotes and lists while rendering following prose math", () => {
+  for (const code of [
+    "> ~~~text\n> \\(literal\\)\n> ~~~",
+    "- ~~~text\n  \\(literal\\)\n  ~~~",
+    "> - ```text\n>   \\(literal\\)\n>   ```",
+  ]) {
+    const markdown = `${code}\n\n\\(prose\\)`;
+    assert.equal(normalizeDisplayMath(markdown), `${code}\n\n$prose$`);
+    const html = renderMarkdown(markdown);
+    assert.ok(html.includes("\\(literal\\)"));
+    assert.match(html, /class="katex"/);
+  }
+});
+
+test("preserves multiline inline code across a list continuation indentation change", () => {
+  const code = "- `text\n    second\n  \\(literal\\)\n  last`";
+  const markdown = `${code}\n\n\\(prose\\)`;
+  assert.equal(normalizeDisplayMath(markdown), `${code}\n\n$prose$`);
+  const html = renderMarkdown(markdown);
+  assert.ok(html.includes("\\(literal\\)"));
+  assert.match(html, /class="katex"/);
+});
+
+test("renders indented equations inside paired standalone display delimiters", () => {
+  for (const markdown of [
+    "\\[\n\n    x + y\n\\]",
+    "\\[\n\n\tx + y\n\\]",
+    "- item\n\n  \\[\n\n      x + y\n  \\]",
+  ]) {
+    assert.match(renderMarkdown(markdown), /class="katex-display"/);
+  }
+});
+
+test("does not pair display delimiters across fences or Markdown containers", () => {
+  for (const block of [
+    "  ```\ncode\n  ```",
+    "> ~~~text\n> code\n> ~~~",
+    ">     indented code",
+    "- list item",
+  ]) {
+    const markdown = `\\[\n\n${block}\n\n\\]`;
+    assert.equal(normalizeDisplayMath(markdown), markdown);
+  }
+
+  const leavingList = "- item\n\n  \\[\n\n      x + y\n\n\\]";
+  assert.equal(normalizeDisplayMath(leavingList), leavingList);
+});
+
+test("renders prose math after an unmatched backtick", () => {
+  const markdown = "A ` literal\n\\(prose\\)";
+  assert.equal(normalizeDisplayMath(markdown), "A ` literal\n$prose$");
+  assert.match(renderMarkdown(markdown), /class="katex"/);
+});
+
+test("a fence-like code line with suffix text does not close the fence", () => {
+  for (const marker of ["```", "~~~"]) {
+    const code = `${marker}text\r\n${marker} label\r\n\\(literal\\)\r\n${marker}  \r\n`;
+    assert.equal(normalizeDisplayMath(`${code}\\(prose\\)`), `${code}$prose$`);
+  }
+});
+
+test("leaves inline code alone when link destinations also contain backticks", () => {
+  const markdown = "[x](a`) `\\(literal\\)` [y](b`)";
+  assert.equal(normalizeDisplayMath(markdown), markdown);
+  assert.match(renderMarkdown(markdown), /<code class="markdown-inline-code">\\\(literal\\\)<\/code>/);
+});
+
 test("does not normalize LaTeX delimiters inside raw HTML code", () => {
   const markdown = "<code>\\(inline\\)</code>\n\n<pre>\n\\(block\\)\n</pre>";
 
   assert.equal(normalizeDisplayMath(markdown), markdown);
+});
+
+test("protects raw HTML code opened beside Markdown code without treating literal tags as HTML", () => {
+  const raw = "`example <pre>` <code>\n\\(literal\\)\n</code>";
+  const fenced = "```text\n<pre>\n```";
+  for (const code of [raw, fenced]) {
+    assert.equal(normalizeDisplayMath(`${code}\n\n\\(prose\\)`), `${code}\n\n$prose$`);
+  }
 });
 
 test("does not normalize escaped delimiters or link destinations", () => {

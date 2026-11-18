@@ -210,9 +210,9 @@ async function sendFileStream(
   resourceTicket = false,
   handle?: FileHandle,
 ): Promise<void> {
-  const headers = fileResponseHeaders(filePath, contentType, asDownload);
-  if (resourceTicket) headers["Cache-Control"] = "no-store";
   try {
+    const headers = fileResponseHeaders(filePath, contentType, asDownload);
+    if (resourceTicket) headers["Cache-Control"] = "no-store";
     const rangeHeader = req.method === "GET" ? req.headers.range : undefined;
     const range = rangeHeader ? parseByteRange(rangeHeader, stat.size) : null;
     if (rangeHeader && (range === "invalid" || range === null)) {
@@ -912,13 +912,18 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
       }
       if (url.searchParams.get("download") === "1") {
         const { handle } = await openRegularFileNoFollow(resolved);
-        res.writeHead(200, {
-          "content-type": "text/plain; charset=utf-8",
-          "content-disposition": "attachment; filename=\"bash-output.log\"",
-          "cache-control": "no-store",
-          "x-request-id": requestId,
-        });
-        Readable.fromWeb(handle.createReadStream() as never).pipe(res);
+        try {
+          // spill 可能继续增长，不用打开时的大小作为响应长度。
+          res.writeHead(200, {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="bash-output.log"',
+            "Cache-Control": "no-store",
+            "x-request-id": requestId,
+          });
+          await pipeline(handle.createReadStream(), res);
+        } finally {
+          await handle.close();
+        }
         return;
       }
       const result = await readUtf8FileWithinLimit(resolved);
@@ -971,6 +976,7 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
       const sessionId = decodeURIComponent(session[1]);
       if (method === "GET") {
         sendJson(res, 200, await readSessionView(sessionId, {
+          tree: url.searchParams.get("tree") === "preview" ? "preview" : undefined,
           deferThinking: url.searchParams.has("deferThinking"),
           deferToolResultImages: url.searchParams.has("deferMedia"),
         }), requestId);

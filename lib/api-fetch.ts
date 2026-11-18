@@ -17,15 +17,3 @@ export async function apiFetch(path: string, init: ApiFetchInit = {}): Promise<R
     headers: !anonymous && hasAgentCredential() ? agentAuthHeaders(resolved, headers) : headers,
   });
 }
-
-/** 读取 JSON；非 2xx 抛出带状态码的错误，方便调用点统一处理 401。 */
-export async function apiFetchJson<T>(path: string, init: ApiFetchInit = {}): Promise<T> {
-  const response = await apiFetch(path, init);
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    const error = new Error(text || `HTTP ${response.status}`) as Error & { status?: number };
-    error.status = response.status;
-    throw error;
-  }
-  return await response.json() as T;
-}

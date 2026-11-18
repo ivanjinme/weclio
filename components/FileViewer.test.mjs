@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createJiti } from "jiti";
 import test from "node:test";
 import ts from "typescript";
 
@@ -152,6 +153,68 @@ test("text resume uses draft-safe refresh and keeps deleted diffs unwatched", ()
   assert.match(reset, /setDisplayMode\("source"\)/);
   assert.match(reset, /setWrapLines\(false\)/);
   assert.doesNotMatch(reset.slice(reset.lastIndexOf("}, [")), /active/);
+});
+
+test("text watch reconciles a missed revision on reconnect without overwriting an unsaved draft", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { FileDraftCoordinator } = await createJiti(import.meta.url).import("../lib/file-draft.ts");
+  const viewer = viewerSource("TextFileViewer");
+  const start = viewer.lastIndexOf("  useEffect(() => {", viewer.indexOf("const es = createEventStream"));
+  const end = viewer.indexOf("\n  }, [", start);
+  const body = viewer.slice(start + "  useEffect(() => {".length, end);
+  const compiled = ts.transpileModule(`function watch() {${body}\n}`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const filePath = "/example.txt";
+  const sourceSessionId = "session";
+  let remote = "original";
+  const drafts = new FileDraftCoordinator(async () => {}, async (path, sid) => {
+    assert.equal(path, filePath);
+    assert.equal(sid, sourceSessionId);
+    return { content: remote, size: remote.length, language: "text", editable: true };
+  });
+  await drafts.refresh(filePath, sourceSessionId);
+  const listeners = {};
+  const stream = {
+    addEventListener(event, callback) { listeners[event] = callback; },
+    close() {},
+  };
+  const reads = [];
+  let gitDiffRefreshes = 0;
+  const cleanup = new Function(
+    "active", "isDeletedDiff", "filePath", "sourceSessionId", "createEventStream", "getFileApiUrl", "setWatching", "esRef",
+    "refreshOnActivateRef", "fileDrafts", "fetchContent", "scheduleGitDiff", `${compiled}\nreturn watch();`,
+  )(true, false, filePath, sourceSessionId, () => stream, () => "/watch", () => {}, { current: null },
+    { current: false }, drafts, (path) => reads.push(drafts.refresh(path, sourceSessionId)), () => { gitDiffRefreshes++; });
+  t.after(cleanup);
+  const revision = (event, mtime) => listeners[event]({ data: JSON.stringify({ mtime, size: remote.length }) });
+
+  revision("connected", "2026-01-01T00:00:00Z");
+  stream.onerror();
+  revision("connected", "2026-01-01T00:00:00Z");
+  assert.equal(reads.length, 0, "unchanged revision needs no extra read");
+  stream.onerror();
+  remote = "updated!";
+  revision("connected", "2026-01-01T00:00:01Z");
+  await Promise.all(reads);
+  assert.equal(drafts.get(filePath).text, "updated!");
+  assert.equal(gitDiffRefreshes, 1);
+
+  remote = "changed by live event";
+  revision("change", "2026-01-01T00:00:02Z");
+  await Promise.all(reads);
+  stream.onerror();
+  revision("connected", "2026-01-01T00:00:02Z");
+  assert.equal(reads.length, 2, "live changes update the reconnect baseline");
+  drafts.edit(filePath, "unsaved local text");
+  stream.onerror();
+  remote = "changed while offline";
+  revision("connected", "2026-01-01T00:00:03Z");
+  assert.equal(reads.length, 3, "reconnect goes through the draft-aware refresh even while dirty");
+  await Promise.all(reads);
+  assert.equal(drafts.get(filePath).text, "unsaved local text");
+  assert.equal(drafts.get(filePath).status, "dirty");
+  assert.equal(gitDiffRefreshes, 2);
 });
 
 test("large source previews bypass the per-line syntax highlighter", () => {

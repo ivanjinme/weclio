@@ -12,10 +12,6 @@ export function setAgentCredential(token: string | null | undefined): void {
   credential = trimmed ? trimmed : null;
 }
 
-export function getAgentCredential(): string | null {
-  return credential;
-}
-
 export function hasAgentCredential(): boolean {
   return credential !== null;
 }

@@ -60,10 +60,8 @@ export async function main({ env = process.env, cwd = root, spawnChild = spawn, 
   const stateDir = env.WECLIO_AGENT_STATE_DIR ?? join(cwd, "build/dev-service-state");
   const tokenPath = env.WECLIO_AGENT_TOKEN_FILE ?? join(stateDir, "service-token");
   if (!isAbsolute(stateDir) || !isAbsolute(tokenPath)) throw new Error("Service stateDir and token file must be absolute paths");
-  // 独立输出目录隔离 NEXT_PUBLIC_* 编译产物，不清理用户的普通 Next UI。
+  // 独立输出目录隔离 NEXT_PUBLIC_* 编译产物；由 Next 判断锁是否仍被持有。
   const distDir = env.WECLIO_DEV_UI_DIST_DIR ?? "build/dev-service-ui";
-  const devOutput = resolve(cwd, distDir, "dev");
-  if (!desktop && existsSync(join(devOutput, "lock"))) throw new Error(`Next dev output is locked: ${devOutput}; stop the dedicated service UI first`);
 
   const children = [];
   let fail;

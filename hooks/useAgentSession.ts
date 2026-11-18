@@ -15,6 +15,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { getDefaultAgentClient, sendAgentCommand } from "@/lib/agent-client";
 import { resolveThinkingLevel } from "@/lib/thinking-level";
 import type { CompactCommandResult, QueuedMessages, SlashCommandInfo } from "@/lib/agent/protocol/commands";
+import { AgentProtocolError } from "@/lib/agent/protocol/validate";
 import type { ComposerPart } from "@/lib/composer";
 export type { QueuedMessages, SlashCommandInfo } from "@/lib/agent/protocol/commands";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -242,6 +243,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const promptRunIdRef = useRef(0);
   const optimisticUserMessageRef = useRef<UserMessage | null>(null);
   const compactingRef = useRef(false);
+  const recoveringCompactionRef = useRef<{ refreshing: boolean } | null>(null);
 
   // Keep the resolved cwd in a ref without writing during render. Unconditional:
   // clearing the draft's project (null) must also clear the ref. The resolve-
@@ -302,12 +304,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } satisfies SessionStatsInfo;
   }, [messages, contextUsage, data?.filePath, data?.info?.name, session?.id, session?.name]);
 
-  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, isCurrent: () => boolean = () => true) => {
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
-      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
+      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tree: "preview" });
       const res = await apiFetch(apiUrl(`/sessions/${encodeURIComponent(sid)}?${params}`));
+      if (!isCurrent()) return null;
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
@@ -319,7 +322,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (sessionIdRef.current !== sid || !isCurrent()) return null;
       setData(d);
       setActiveLeafId(d.leafId);
       setMessages(d.context.messages);
@@ -338,7 +341,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const stateRes = await apiFetch(apiUrl(`/sessions/${encodeURIComponent(sid)}/state`));
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
-        if (sessionIdRef.current !== sid) return null;
+        if (sessionIdRef.current !== sid || !isCurrent()) return null;
 
         const liveState = agentState.state;
         if (liveState) {
@@ -357,10 +360,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return null;
       }
     } catch (e) {
-      setError(String(e));
+      if (isCurrent()) setError(String(e));
       return null;
     } finally {
-      if (showLoading && !messagesLoaded) setLoading(false);
+      if (showLoading && !messagesLoaded && isCurrent()) setLoading(false);
     }
   }, []);
 
@@ -676,13 +679,30 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [loadSession]);
 
+  const finishMountedCompaction = useCallback(async (sid: string, reload: boolean) => {
+    const recovery = recoveringCompactionRef.current;
+    if (!recovery || recovery.refreshing) return;
+    recovery.refreshing = true;
+    const isCurrent = () => recoveringCompactionRef.current === recovery;
+    try {
+      if (reload) await loadSession(sid, false, true, isCurrent);
+    } finally {
+      // 刷新期间保持禁用发送，避免旧消息覆盖新一轮对话。
+      if (isCurrent()) {
+        recoveringCompactionRef.current = null;
+        updateCompacting(false);
+      }
+    }
+  }, [loadSession, updateCompacting]);
+
   // Reconcile client streaming state with the server. When SSE events are
   // missed (network drop, mobile tab backgrounded, half-open connection),
   // agent_end never arrives and the UI stays in streaming state forever.
   // If the server reports idle while we still think it's running, finish
   // through the same path as prompt_done.
   const reconcileAgentState = useCallback(async (sid: string) => {
-    if (!agentRunningRef.current) return;
+    const recovery = recoveringCompactionRef.current;
+    if (recovery?.refreshing || (!agentRunningRef.current && !recovery)) return;
     const runId = promptRunIdRef.current;
     try {
       const res = await apiFetch(apiUrl(`/agent/${encodeURIComponent(sid)}`));
@@ -691,8 +711,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // A slow response can straddle a run boundary (previous run finished
       // and the user already started the next one while this request was in
       // flight) — everything in it is stale, drop it.
-      if (promptRunIdRef.current !== runId) return;
+      if (promptRunIdRef.current !== runId || recoveringCompactionRef.current !== recovery || recovery?.refreshing) return;
       const state = data.state;
+      if (recovery && !state?.isCompacting) {
+        await finishMountedCompaction(sid, true);
+        return;
+      }
       // Mirror compaction state unconditionally: a missed compaction_end
       // would otherwise leave the "Stop compaction" UI stuck. No state
       // (wrapper destroyed) means nothing is compacting.
@@ -711,13 +735,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [finishPromptWithoutStream, updateCompacting]);
+  }, [finishMountedCompaction, finishPromptWithoutStream, updateCompacting]);
 
-  // Recovery net for missed SSE events: while the agent is running, verify
-  // against the server periodically and whenever the tab returns to the
-  // foreground or the network comes back.
+  // 对账覆盖正在运行的 prompt，以及页面挂载时已在进行的压缩。
   useEffect(() => {
-    if (!agentRunning) return;
+    if (!agentRunning && !(isCompacting && recoveringCompactionRef.current)) return;
     const reconcile = () => {
       // Read the ref on every tick: for brand-new sessions the id is
       // assigned only after ensure_session returns.
@@ -735,7 +757,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", reconcile);
     };
-  }, [agentRunning, reconcileAgentState]);
+  }, [agentRunning, isCompacting, reconcileAgentState]);
 
   useEffect(() => {
     agentRunningRef.current = agentRunning;
@@ -877,20 +899,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         updateCompacting(true);
         setCompactResult(null);
         break;
-      case "compaction_end":
-        updateCompacting(false);
+      case "compaction_end": {
+        const sid = sessionIdRef.current;
+        const succeeded = !event.errorMessage && !event.aborted;
         if (event.errorMessage) {
           setCompactResult(null);
         } else if (!event.aborted) {
           setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
-          if (sessionIdRef.current) loadSession(sessionIdRef.current, false, true);
+        }
+        if (sid && recoveringCompactionRef.current) {
+          void finishMountedCompaction(sid, succeeded);
+        } else {
+          updateCompacting(false);
+          if (sid && succeeded) {
+            const runId = promptRunIdRef.current;
+            const stream = eventSourceRef.current;
+            const isCurrent = () => promptRunIdRef.current === runId && eventSourceRef.current === stream;
+            void loadSession(sid, false, true, isCurrent);
+          }
         }
         break;
+      }
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionRenamed, updateCompacting]);
+  }, [addNotice, finishMountedCompaction, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionRenamed, updateCompacting]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[], parts?: ComposerPart[]) => {
@@ -983,11 +1017,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     } catch (e) {
       console.error("Failed to send message:", e);
-      if (e instanceof EventStreamConnectionError) {
-        const optimistic = optimisticUserMessageRef.current;
-        if (optimistic) {
-          setMessages((prev) => prev.filter((message) => message !== optimistic));
-        }
+      if (promptRunIdRef.current !== promptRunId) return false;
+      // 传输或响应异常无法证明服务端拒绝了 prompt。
+      if (e instanceof EventStreamConnectionError || (e instanceof AgentProtocolError
+        && e.code !== "http_error" && e.code !== "invalid_response" && e.code !== "bad_gateway")) {
+        setMessages((prev) => prev.filter((message) => message !== userMsg));
+        pendingScrollToUserRef.current = false;
         addNotice({ type: "error", message: e.message });
       }
       optimisticUserMessageRef.current = null;
@@ -1368,9 +1403,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // only loads the session present at mount. A brand-new session is promoted
   // in the same instance and keeps its optimistic message and live connection.
   useEffect(() => {
+    let cancelled = false;
     if (session) {
       sessionIdRef.current = session.id;
-      loadSession(session.id, true, true).then((agentState) => {
+      const runId = promptRunIdRef.current;
+      const source = eventSourceRef.current;
+      const isCurrent = () => !cancelled && promptRunIdRef.current === runId && eventSourceRef.current === source;
+      loadSession(session.id, true, true, isCurrent).then((agentState) => {
+        if (cancelled) return;
+        if (!isCurrent()) {
+          setLoading(false);
+          return;
+        }
+        if (agentState?.state?.isCompacting) {
+          recoveringCompactionRef.current = { refreshing: false };
+          updateCompacting(true);
+        }
         if (agentState?.running) {
           loadTools(session.id);
           if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
@@ -1378,10 +1426,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             setAgentRunning(true);
             setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
             dispatch({ type: "start" });
-            void connectEvents(session.id);
             if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
               void waitForPromptSettlement(session.id);
             }
+          }
+          if (agentState.state?.isStreaming || agentState.state?.isPromptRunning || agentState.state?.isCompacting) {
+            void connectEvents(session.id);
           }
           if (agentState.state?.isBashRunning) {
             bashRunningRef.current = true;
@@ -1390,7 +1440,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }
         }
         if (agentState?.state) {
-          if (agentState.state.isCompacting !== undefined) updateCompacting(agentState.state.isCompacting);
           if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
           if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
           if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? null);
@@ -1401,6 +1450,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       });
     }
     return () => {
+      cancelled = true;
+      recoveringCompactionRef.current = null;
       bashRecoveryIdRef.current += 1;
       eventSourceRef.current?.close();
       eventSourceRef.current = null;

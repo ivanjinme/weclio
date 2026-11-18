@@ -21,6 +21,7 @@ const markdownSanitizeSchema = {
 
 const allowedRawHtmlTags = new Set(defaultSchema.tagNames ?? []);
 const htmlTagPattern = /<\/?([A-Za-z][A-Za-z0-9:._-]*)(?=[\s/>])/g;
+const rawCodeOpenPattern = /<(code|pre|script|style)\b/i;
 
 interface MarkdownAstNode {
   type: string;
@@ -28,6 +29,41 @@ interface MarkdownAstNode {
   lang?: string;
   url?: string;
   children?: MarkdownAstNode[];
+  position?: { start: { line: number; column: number; offset?: number }; end: { line: number } };
+}
+
+/** 先用当前 Markdown 语法识别代码，仅在改写数学定界符后重新解析。 */
+function remarkNormalizeDisplayMath(this: { parse(source: string): MarkdownAstNode }) {
+  return (tree: MarkdownAstNode, file: { value: unknown; toString(): string }) => {
+    const markdown = file.toString();
+    if (!markdown.includes("\\(") && !markdown.includes("\\[") && !markdown.includes("$$")) return;
+
+    const codeLines = new Set<number>();
+    const displayBoundaries = new Set<number>();
+    const rawHtmlStarts = new Map<number, number>();
+    visitMarkdownNodes(tree, (node) => {
+      if (!node.position) return;
+      const { start, end } = node.position;
+      if (node.type === "code" || node.type === "inlineCode") {
+        // 缩进代码开头保留空白；围栏代码的位置从围栏标记开始。
+        const indented = node.type === "code" && start.offset !== undefined && /^[ \t]/.test(markdown[start.offset]);
+        for (let index = start.line - 1; index < end.line; index++) {
+          codeLines.add(index);
+          if (!indented) displayBoundaries.add(index);
+        }
+      } else if (node.type === "listItem" || node.type === "blockquote") {
+        displayBoundaries.add(start.line - 1);
+        displayBoundaries.add(end.line);
+      } else if (node.type === "html" && node.value && rawCodeOpenPattern.test(node.value.split(/[\r\n]/, 1)[0])) {
+        if (!rawHtmlStarts.has(start.line - 1)) rawHtmlStarts.set(start.line - 1, start.column - 1);
+      }
+    });
+
+    const normalized = normalizeDisplayMath(markdown, codeLines, displayBoundaries, rawHtmlStarts);
+    if (normalized === markdown) return;
+    file.value = normalized;
+    return this.parse(normalized);
+  };
 }
 
 /** 在不放宽其他 URL 协议的前提下保留 Windows 绝对路径。 */
@@ -70,12 +106,15 @@ function containsUnknownHtmlTag(html: string): boolean {
   return false;
 }
 
-export function normalizeDisplayMath(markdown: string): string {
-  const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
-  const lines = markdown.split(/\r?\n/);
+function normalizeDisplayMath(
+  markdown: string,
+  codeLines: ReadonlySet<number>,
+  displayBoundaries: ReadonlySet<number>,
+  rawHtmlStarts: ReadonlyMap<number, number>,
+): string {
+  const chunks = markdown.split(/(\r\n?|\n)/);
+  const lines = chunks.filter((_, index) => index % 2 === 0);
   const normalized: string[] = [];
-  let fence: { marker: string; size: number } | null = null;
-  let inlineCodeMarkerSize = 0;
   let rawCodeTag: string | null = null;
 
   for (let index = 0; index < lines.length; index++) {
@@ -87,56 +126,33 @@ export function normalizeDisplayMath(markdown: string): string {
       continue;
     }
 
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      const marker = fenceMatch[1][0];
-      const size = fenceMatch[1].length;
-      if (!fence) fence = { marker, size };
-      else if (marker === fence.marker && size >= fence.size) fence = null;
-      inlineCodeMarkerSize = 0;
-      normalized.push(line);
-      continue;
-    }
-
-    if (fence) {
-      normalized.push(line);
-      continue;
-    }
-
-    const rawCodeOpen = line.match(/<(code|pre|script|style)\b/i);
+    // 同一行的 Markdown 代码不能开启 HTML 代码区，但真实标签仍然可以。
+    const htmlStart = codeLines.has(index) ? rawHtmlStarts.get(index) : 0;
+    const html = htmlStart === undefined ? "" : line.slice(htmlStart);
+    const rawCodeOpen = html.match(rawCodeOpenPattern);
     if (rawCodeOpen) {
       const tag = rawCodeOpen[1].toLowerCase();
-      const remainder = line.slice((rawCodeOpen.index ?? 0) + rawCodeOpen[0].length);
+      const remainder = html.slice((rawCodeOpen.index ?? 0) + rawCodeOpen[0].length);
       if (!new RegExp(`</${tag}\\s*>`, "i").test(remainder)) rawCodeTag = tag;
-      inlineCodeMarkerSize = 0;
+    }
+    if (rawCodeOpen || codeLines.has(index)) {
       normalized.push(line);
       continue;
     }
 
-    if (/^(?: {4}|\t)/.test(line) || line.trim() === "") {
-      inlineCodeMarkerSize = 0;
-      normalized.push(line);
+    const oneLineDisplay = line.match(/^( {0,3})\\\[[ \t]*(.+?)[ \t]*\\\][ \t]*$/)
+      ?? line.match(/^([ \t]{0,3})\$\$(.+)\$\$[ \t]*$/);
+    const displayMath = oneLineDisplay?.[2].trim();
+    if (oneLineDisplay && displayMath) {
+      const delimiter = `${oneLineDisplay[1]}$$`;
+      const lineBreak = chunks[index * 2 + 1] ?? chunks[index * 2 - 1] ?? "\n";
+      normalized.push([delimiter, displayMath, delimiter].join(lineBreak));
       continue;
-    }
-
-    if (inlineCodeMarkerSize || line.includes("`")) {
-      inlineCodeMarkerSize = updateInlineCodeMarker(line, inlineCodeMarkerSize);
-      normalized.push(line);
-      continue;
-    }
-
-    const bracketDisplayOneLine = line.match(/^([ ]{0,3})\\\[[ \t]*(.+?)[ \t]*\\\][ \t]*$/);
-    if (bracketDisplayOneLine) {
-      const math = bracketDisplayOneLine[2].trim();
-      if (math) {
-        normalized.push(`${bracketDisplayOneLine[1]}$$`, math, `${bracketDisplayOneLine[1]}$$`);
-        continue;
-      }
     }
 
     const bracketDisplayStart = line.match(/^([ ]{0,3})\\\[[ \t]*$/);
     if (bracketDisplayStart) {
-      const closingIndex = findBracketDisplayClose(lines, index + 1);
+      const closingIndex = findBracketDisplayClose(lines, index + 1, displayBoundaries);
       if (closingIndex !== -1) {
         normalized.push(
           `${bracketDisplayStart[1]}$$`,
@@ -148,55 +164,28 @@ export function normalizeDisplayMath(markdown: string): string {
       }
     }
 
-    const displayMathMatch = line.match(/^([ \t]{0,3})\$\$(.+)\$\$[ \t]*$/);
-    if (displayMathMatch) {
-      const math = displayMathMatch[2].trim();
-      if (math) {
-        normalized.push(`${displayMathMatch[1]}$$`, math, `${displayMathMatch[1]}$$`);
-        continue;
-      }
-    }
-
     normalized.push(normalizeInlineLatexMath(line));
   }
 
-  return normalized.join(lineBreak);
+  return normalized.map((line, index) => line + (chunks[index * 2 + 1] ?? "")).join("");
 }
 
-function findBracketDisplayClose(lines: string[], startIndex: number): number {
+function findBracketDisplayClose(lines: string[], startIndex: number, displayBoundaries: ReadonlySet<number>): number {
   for (let index = startIndex; index < lines.length; index++) {
+    if (displayBoundaries.has(index)) return -1;
     const line = lines[index];
     if (/^ {0,3}\\\][ \t]*$/.test(line)) return index;
 
-    // Do not pair delimiters across another Markdown block boundary.
+    // 不跨过代码或另一组起始定界符寻找闭合符号。
     if (
-      /^ {0,3}(`{3,}|~{3,})/.test(line) ||
       /^ {0,3}\\\[[ \t]*$/.test(line) ||
-      /<(code|pre|script|style)\b/i.test(line)
+      rawCodeOpenPattern.test(line)
     ) {
       return -1;
     }
   }
 
   return -1;
-}
-
-function updateInlineCodeMarker(line: string, initialMarkerSize: number): number {
-  let markerSize = initialMarkerSize;
-  for (let cursor = 0; cursor < line.length;) {
-    if (line[cursor] !== "`") {
-      cursor++;
-      continue;
-    }
-
-    let end = cursor + 1;
-    while (line[end] === "`") end++;
-    const runSize = end - cursor;
-    if (markerSize === 0) markerSize = runSize;
-    else if (runSize === markerSize) markerSize = 0;
-    cursor = end;
-  }
-  return markerSize;
 }
 
 function normalizeInlineLatexMath(line: string): string {
@@ -241,18 +230,14 @@ export function markdownUrlTransform(value: string): string {
   return resolveLocalFileHref(value) ? value : defaultUrlTransform(value);
 }
 
-export const markdownRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
+export const markdownRemarkPlugins: NonNullable<ReactMarkdownOptions["remarkPlugins"]> = [
   remarkGfm,
   remarkMath,
+  remarkNormalizeDisplayMath,
   remarkNormalizeWindowsFileLinks,
   remarkPreserveUnknownXmlTags,
 ];
-export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"] = [
-  remarkGfm,
-  remarkMath,
-  remarkNormalizeWindowsFileLinks,
-  remarkPreserveUnknownXmlTags,
-];
+export const markdownPreviewRemarkPlugins = markdownRemarkPlugins;
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,

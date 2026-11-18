@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -199,14 +200,34 @@ test("invalid or equal ports fail before spawning", async (t) => {
   }
 });
 
-test("active dedicated Next output lock is never removed", async (t) => {
-  const options = await fixture(t);
-  mkdirSync(join(options.cwd, "build/dev-service-ui/dev"), { recursive: true });
-  const lock = join(options.cwd, "build/dev-service-ui/dev/lock");
-  writeFileSync(lock, "");
-  await assert.rejects(main({ ...options, spawnChild() { assert.fail("must not spawn"); } }), /output is locked/);
-  assert.equal(existsSync(lock), true);
-});
+for (const held of [false, true]) {
+  test(`Next arbitrates a ${held ? "held" : "leftover"} dedicated output lock and the supervisor stops its Service`, async (t) => {
+    const require = createRequire(import.meta.url);
+    const swc = require.resolve("next/dist/build/swc");
+    const lockfile = require.resolve("next/dist/build/lockfile");
+    const { isWasm } = await require(swc).loadBindings();
+    if (isWasm) return t.skip("Next's WASM bindings do not lock the output directory");
+    const { Lockfile } = require(lockfile);
+    const options = await fixture(t);
+    mkdirSync(join(options.cwd, "build/dev-service-ui/dev"), { recursive: true });
+    const lockPath = join(options.cwd, "build/dev-service-ui/dev/lock");
+    writeFileSync(lockPath, "leftover");
+    const lock = held ? Lockfile.tryAcquire(lockPath, false, "active owner") : undefined;
+    if (held) assert.ok(lock);
+    const children = spawnFixtures(`${readyCode(options.env)} setInterval(() => {}, 1000);`, `
+      require(${JSON.stringify(swc)}).loadBindings().then(() => {
+        const { Lockfile } = require(${JSON.stringify(lockfile)});
+        const lock = Lockfile.tryAcquire(${JSON.stringify(lockPath)}, false);
+        lock?.unlockSync();
+        process.exitCode = lock ? 3 : 4;
+      });`);
+    try {
+      await assert.rejects(main({ ...options, spawnChild: children.spawnChild }), held ? /\[ui\] exited \(4\)/ : /\[ui\] exited \(3\)/);
+      if (held) assert.equal(readFileSync(lockPath, "utf8"), "active owner");
+      await assertStopped(children.children);
+    } finally { lock?.unlockSync(); }
+  });
+}
 
 function desktopFixtures(options, assetDir, desktopCode = "process.exit(0)") {
   const calls = [];

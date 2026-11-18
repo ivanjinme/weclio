@@ -19,7 +19,7 @@ import {
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { resolveLocalFileHref } from "@/lib/file-links";
-import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
@@ -959,20 +959,30 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
     const es = createEventStream(getFileApiUrl(filePath, "watch", sourceSessionId));
     esRef.current = es;
 
-    es.addEventListener("connected", () => {
-      setWatching(true);
-    });
-
-    es.addEventListener("change", () => {
+    let lastRevision: MediaRevision | null = null;
+    let disconnected = false;
+    const refresh = () => {
       void fetchContent(filePath);
       if (fileDrafts.get(filePath)?.status === "saved") scheduleGitDiff(filePath);
+    };
+
+    es.addEventListener("connected", (e) => {
+      setWatching(true);
+      const revision = JSON.parse((e as MessageEvent).data) as MediaRevision;
+      const changed = lastRevision
+        ? lastRevision.mtime !== revision.mtime || lastRevision.size !== revision.size
+        : disconnected;
+      lastRevision = revision;
+      if (changed) refresh();
     });
 
-    es.addEventListener("error", () => {
-      setWatching(false);
+    es.addEventListener("change", (e) => {
+      lastRevision = JSON.parse((e as MessageEvent).data) as MediaRevision;
+      refresh();
     });
 
     es.onerror = () => {
+      disconnected = true;
       setWatching(false);
     };
 
@@ -1016,10 +1026,6 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
   const fallbackReason = useMemo(() => displayMode === "preview" && language === "markdown"
     ? markdownUnsafe ?? markdownFallbackReason(content, filePath) : null,
     [displayMode, language, markdownUnsafe, content, filePath]);
-  const markdownPreview = useMemo(
-    () => (displayMode === "preview" && language === "markdown" && (!draft?.editable || fallbackReason) ? normalizeDisplayMath(content) : ""),
-    [language, content, displayMode, draft?.editable, fallbackReason],
-  );
 
   useEffect(() => {
     const updateSelectedLineRange = () => {
@@ -1295,7 +1301,7 @@ function TextFileViewer({ filePath, active = true, cwd, sourceSessionId, onOpenF
                 },
               }}
             >
-              {markdownPreview}
+              {content}
             </ReactMarkdown>
           </div>
         ) : draft?.editable ? (
