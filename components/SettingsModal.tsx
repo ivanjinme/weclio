@@ -19,7 +19,7 @@ interface Props {
   onSoundToggle: () => void;
   onClose: () => void;
   onTrustProject: () => void;
-  onPluginsReloaded: () => void;
+  onPluginsReloaded: (sessionId: string) => void;
 }
 
 export function SettingsModal({

@@ -697,14 +697,7 @@ export class AgentSessionWrapper {
 
       case "reload": {
         await this.waitForExtensionsBound();
-        this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
-        this.syncProjectTrust();
-        await this.inner.reload({ beforeSessionStart: () => this.applyForcedEmptySystemPrompt() });
-        if (typeof this.inner.bindExtensions !== "function") {
-          this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-        }
-        this.applyForcedEmptySystemPrompt();
+        await this.reloadResources();
         return { success: true };
       }
 
@@ -1139,19 +1132,26 @@ export class AgentSessionWrapper {
         return { cancelled: result.cancelled };
       },
       switchSession: async () => ({ cancelled: true }),
-      reload: async () => {
-        this.extensionStatuses.clear();
-        this.extensionWidgets.clear();
-        this.syncProjectTrust();
-        await this.inner.reload({
-          beforeSessionStart: () => {
-            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-            this.applyForcedEmptySystemPrompt();
-          },
-        });
-        this.applyForcedEmptySystemPrompt();
-      },
+      reload: () => this.reloadResources(),
     };
+  }
+
+  private async reloadResources(): Promise<void> {
+    this.syncProjectTrust();
+    const useLegacyBinding = typeof this.inner.bindExtensions !== "function";
+    const beforeSessionStart = () => {
+      // Pi 已经换掉旧扩展，新扩展还没开始注册界面状态。
+      this.extensionStatuses.clear();
+      this.extensionWidgets.clear();
+      this.applyForcedEmptySystemPrompt();
+    };
+    await this.inner.reload({ beforeSessionStart });
+    if (useLegacyBinding) {
+      beforeSessionStart();
+      this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+    }
+    this.applyForcedEmptySystemPrompt();
+    this.emit({ type: "session_reloaded" });
   }
 
   private syncProjectTrust(): void {

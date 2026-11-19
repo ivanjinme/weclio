@@ -110,6 +110,8 @@ function ConfiguredAppShell() {
   const [fileDrafts] = useState(() => createFileDraftCoordinator(() => setExplorerRefreshKey((key) => key + 1)));
   const [settingsContext, setSettingsContext] = useState<SettingsContext | null>(null);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
+  const [sessionReload, setSessionReload] = useState<{ sessionId: string } | null>(null);
+  const handlePluginsReloaded = useCallback((sessionId: string) => setSessionReload({ sessionId }), []);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const codexUsage = useCodexUsage(userMenuOpen);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -866,6 +868,7 @@ function ConfiguredAppShell() {
               onSessionForked={handleSessionForked}
               onSessionRenamed={handleSessionRenamed}
               modelsRefreshKey={modelsRefreshKey}
+              sessionReload={sessionReload}
               chatInputRef={chatInputRef}
               onInitialContentReady={handleInitialContentReady}
               onOpenFile={handleOpenLinkedFile}
@@ -1074,7 +1077,7 @@ function ConfiguredAppShell() {
           setModelsRefreshKey((key) => key + 1);
         }}
         onTrustProject={() => setProjectTrustDialogOpen(true)}
-        onPluginsReloaded={remountChat}
+        onPluginsReloaded={handlePluginsReloaded}
       />
     )}
     {projectTrustDialogOpen && projectTrustCwd && (

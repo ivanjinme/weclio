@@ -103,6 +103,7 @@ export interface UseAgentSessionOptions {
   onSessionForked?: (newSessionId: string) => void;
   onSessionRenamed?: (name: string) => void;
   modelsRefreshKey?: number;
+  sessionReload?: { sessionId: string } | null;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
@@ -184,7 +185,7 @@ type ModelsResponse = {
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
     session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, onSessionRenamed,
-    modelsRefreshKey, onBranchDataChange, onSystemPromptChange, resolveNewSessionCwd, chatInputRef,
+    modelsRefreshKey, sessionReload, onBranchDataChange, onSystemPromptChange, resolveNewSessionCwd, chatInputRef,
   } = opts;
 
   const isNew = session === null;
@@ -763,6 +764,53 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
+  const loadModels = useCallback(async (signal?: AbortSignal) => {
+    const modelCwd = newSessionCwd ?? session?.cwd ?? "";
+    const modelsUrl = apiUrl(modelCwd ? `/models?cwd=${encodeURIComponent(modelCwd)}` : "/models");
+    const res = await apiFetch(modelsUrl, signal ? { signal } : undefined);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json() as ModelsResponse;
+    setModelNames(d.models);
+    setModelError(d.modelError ?? null);
+    setModelThinkingLevels(d.thinkingLevels ?? {});
+    const nextModelList = d.modelList ?? [];
+    setModelList(nextModelList);
+    if (isNew) {
+      const match = d.defaultModel
+        ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
+        : undefined;
+      const displayModel = match ?? nextModelList[0];
+      setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
+    }
+  }, [isNew, newSessionCwd, session?.cwd]);
+
+  const refreshReloadedResources = useCallback(async (sid: string) => {
+    if (sessionIdRef.current !== sid) return;
+    try {
+      const [state] = await Promise.all([
+        sendAgentCommand(sid, { type: "get_state" }),
+        loadTools(sid),
+        loadSlashCommands(),
+        loadModels().catch((err) => console.error("Failed to refresh models after reload:", err)),
+      ]);
+      if (sessionIdRef.current !== sid || !state) return;
+      setSystemPrompt(state.systemPrompt ?? null);
+      setThinkingLevel((state.thinkingLevel as ThinkingLevelOption) ?? null);
+      setExtensionStatuses(state.extensionStatuses ?? []);
+      setExtensionWidgets(state.extensionWidgets ?? []);
+    } catch (err) {
+      console.error("Failed to refresh session resources after reload:", err);
+    }
+  }, [loadModels, loadSlashCommands, loadTools]);
+
+  const handledSessionReload = useRef(sessionReload);
+  useEffect(() => {
+    if (handledSessionReload.current === sessionReload) return;
+    handledSessionReload.current = sessionReload;
+    // 空闲会话可能没有 SSE；插件页成功后仍要刷新。
+    if (sessionReload) void refreshReloadedResources(sessionReload.sessionId);
+  }, [sessionReload, refreshReloadedResources]);
+
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
       case "connected":
@@ -772,6 +820,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setAgentRunning(true);
           setAgentPhase({ kind: "waiting_model" });
         }
+        break;
+      case "session_reloaded":
+        if (sessionIdRef.current) void refreshReloadedResources(sessionIdRef.current);
         break;
       case "session_info_changed":
         onSessionRenamed?.(typeof event.name === "string" ? event.name : "");
@@ -924,7 +975,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishMountedCompaction, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionRenamed, updateCompacting]);
+  }, [addNotice, finishMountedCompaction, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionRenamed, refreshReloadedResources, updateCompacting]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[], parts?: ComposerPart[]) => {
@@ -1192,26 +1243,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, setNewSessionModel, requestedThinkingLevel, modelThinkingLevels]);
 
-  const loadModels = useCallback(async (signal?: AbortSignal) => {
-    const modelCwd = newSessionCwd ?? session?.cwd ?? "";
-    const modelsUrl = apiUrl(modelCwd ? `/models?cwd=${encodeURIComponent(modelCwd)}` : "/models");
-    const res = await apiFetch(modelsUrl, signal ? { signal } : undefined);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const d = await res.json() as ModelsResponse;
-    setModelNames(d.models);
-    setModelError(d.modelError ?? null);
-    setModelThinkingLevels(d.thinkingLevels ?? {});
-    const nextModelList = d.modelList ?? [];
-    setModelList(nextModelList);
-    if (isNew) {
-      const match = d.defaultModel
-        ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
-        : undefined;
-      const displayModel = match ?? nextModelList[0];
-      setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
-    }
-  }, [isNew, newSessionCwd, session?.cwd]);
-
   const handleBuiltinSlashCommand = useCallback(async (text: string): Promise<BuiltinSlashCommandResult> => {
     if (!text.startsWith("/")) return { handled: false };
     const match = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/);
@@ -1262,12 +1293,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         case "reload": {
           if (!sid) return complete({ handled: true, error: "No active session to reload" });
           await sendAgentCommand(sid, { type: "reload" });
-          await Promise.all([
-            loadSession(sid, false, true),
-            loadTools(sid),
-            loadSlashCommands(),
-            loadModels(),
-          ]);
+          await refreshReloadedResources(sid);
           return complete({ handled: true, message: "Reloaded session resources" });
         }
 
@@ -1289,7 +1315,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (commandName === "compact" && isCompactionCancellation(e)) return { handled: true };
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     }
-  }, [addNotice, ensureNewSession, loadModels, loadSession, loadSlashCommands, loadTools, onSessionRenamed, promoteNewSession, updateCompacting]);
+  }, [addNotice, ensureNewSession, loadSession, onSessionRenamed, promoteNewSession, refreshReloadedResources, updateCompacting]);
 
   // Queued (undelivered) messages live in the queue panel only; the chat gets
   // the real user message when pi delivers it (user message_end event). An

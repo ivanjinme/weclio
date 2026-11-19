@@ -47,6 +47,7 @@ interface Props {
   onSessionRenamed?: (name: string) => void;
   onInitialContentReady?: (sessionId: string) => void;
   modelsRefreshKey?: number;
+  sessionReload: { sessionId: string } | null;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
@@ -193,7 +194,7 @@ function ProcessDetailsGroup({ durationMs, toolCallCount, children, t }: { durat
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProjectPicker, onProjectSelect, onProjectClear, resolveNewSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, onSessionRenamed, onInitialContentReady, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, onOpenFile, onTurnChangesChange, onOpenChanges, playDoneSound, unlockAudio }: Props) {
+export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProjectPicker, onProjectSelect, onProjectClear, resolveNewSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, onSessionRenamed, onInitialContentReady, modelsRefreshKey, sessionReload, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, onOpenFile, onTurnChangesChange, onOpenChanges, playDoneSound, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMinimapHidden = useIsMobile(400);
   const wrappedOnAgentEnd = useCallback(() => {
@@ -220,7 +221,7 @@ export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProject
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked, onSessionRenamed,
-    modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, resolveNewSessionCwd,
+    modelsRefreshKey, sessionReload, chatInputRef, onBranchDataChange, onSystemPromptChange, resolveNewSessionCwd,
   });
   // loading 结束包含成功和失败；错误界面也必须能结束开屏。
   useEffect(() => {

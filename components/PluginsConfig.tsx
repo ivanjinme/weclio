@@ -583,7 +583,7 @@ function PackageDetail({
 interface PluginsConfigProps {
   cwd: string | null;
   sessionId: string | null;
-  onReloaded?: () => void;
+  onReloaded?: (sessionId: string) => void;
 }
 
 export function PluginsConfig({ cwd, sessionId, onReloaded }: PluginsConfigProps) {
@@ -700,7 +700,7 @@ export function PluginsConfig({ cwd, sessionId, onReloaded }: PluginsConfigProps
     setActionMessage(null);
     try {
       await sendAgentCommand(sessionId, { type: "reload" });
-      onReloaded?.();
+      onReloaded?.(sessionId);
       await loadPlugins();
       setActionMessage(t("i18n.sessionReloaded"));
     } catch (err) {
