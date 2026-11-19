@@ -1,0 +1,89 @@
+name: Publish Web to npm
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify release tag
+        run: test "$GITHUB_REF_NAME" = "v$(node -p 'require("./package.json").version')"
+      - run: npm install -g npm@11
+      - run: npm ci
+      - run: npm run build:web-service
+      - run: npm run build
+
+      - name: Pack and install outside the checkout
+        run: |
+          staging=$(mktemp -d "$RUNNER_TEMP/weclio-web.XXXXXX")
+          filename=$(npm pack --pack-destination "$staging")
+          npm install --prefix "$staging/consumer" --ignore-scripts --omit=dev "$staging/$filename"
+          echo "WEB_TARBALL=$staging/$filename" >> "$GITHUB_ENV"
+          echo "WEB_CONSUMER=$staging/consumer" >> "$GITHUB_ENV"
+
+      - name: Verify the installed UI and Agent Service
+        timeout-minutes: 3
+        run: |
+          cd "$WEB_CONSUMER"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { spawn } from 'node:child_process';
+          import { once } from 'node:events';
+          import { resolve } from 'node:path';
+          import { createInterface } from 'node:readline';
+
+          const child = spawn(process.execPath, ['node_modules/@weclio/web/bin/weclio-web.js', '--no-open', '-p', '0'], {
+            env: { ...process.env, WECLIO_AGENT_STATE_DIR: resolve('state'), PI_CODING_AGENT_DIR: resolve('profile') },
+            stdio: ['pipe', 'pipe', 'inherit'],
+          });
+          const exited = once(child, 'exit');
+          const lines = createInterface({ input: child.stdout });
+          lines.on('line', (line) => console.log(line));
+          const ready = (async () => {
+            for await (const line of lines) {
+              if (line.startsWith('Weclio ready: ')) return line.slice('Weclio ready: '.length);
+            }
+            throw new Error('Installed CLI did not become ready');
+          })();
+          const startupTimer = setTimeout(() => child.kill('SIGKILL'), 90_000);
+          try {
+            const origin = await ready;
+            clearTimeout(startupTimer);
+            const signal = AbortSignal.timeout(15_000);
+            const ui = await fetch(origin, { signal });
+            assert.equal(ui.status, 200);
+            await ui.arrayBuffer();
+            const bootstrap = await fetch(`${origin}/_weclio/connection`, {
+              method: 'POST', headers: { Origin: origin, 'x-weclio-bootstrap': '1' }, signal,
+            });
+            assert.equal(bootstrap.status, 200);
+            const { baseUrl, token } = await bootstrap.json();
+            const headers = { Origin: origin, Authorization: `Bearer ${token}` };
+            const info = await fetch(`${baseUrl}/v1/info`, { headers, signal });
+            assert.equal(info.status, 200);
+            await info.json();
+            const events = await fetch(`${baseUrl}/v1/events`, { headers, signal });
+            assert.equal(events.status, 200);
+            assert.match(events.headers.get('content-type') ?? '', /^text\/event-stream/);
+            await events.body.cancel();
+          } finally {
+            clearTimeout(startupTimer);
+            if (child.exitCode === null && child.signalCode === null) child.stdin.end('shutdown\n');
+            const stopTimer = setTimeout(() => child.kill('SIGKILL'), 20_000);
+            try { assert.deepEqual(await exited, [0, null]); } finally { clearTimeout(stopTimer); }
+          }
+          JS
+
+      - name: Publish the verified tarball
+        run: npm publish "$WEB_TARBALL" --access public
