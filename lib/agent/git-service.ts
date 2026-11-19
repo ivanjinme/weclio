@@ -37,7 +37,7 @@ export async function gitDiff(cwdValue: unknown, pathValue: unknown): Promise<Gi
   if (typeof pathValue !== "string" || !pathValue.trim()) {
     throw new AgentProtocolError("invalid_argument", "path must be an absolute path");
   }
-  const filePath = pathValue.trim();
+  const filePath = pathValue;
   if (!filePath.startsWith("/") && !isWindowsAbsolutePath(filePath)) {
     throw new AgentProtocolError("invalid_argument", "path must be an absolute path");
   }

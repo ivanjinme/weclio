@@ -331,7 +331,7 @@ export interface ByteRange {
 /** 解析单段 Range；invalid 表示应返回 416。 */
 export function parseByteRange(rangeHeader: string, size: number): ByteRange | "invalid" | null {
   const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
-  if (!match) return "invalid";
+  if (!match || (!match[1] && !match[2])) return "invalid";
   let start = match[1] ? Number(match[1]) : 0;
   let end = match[2] ? Number(match[2]) : size - 1;
   if (!match[1] && match[2]) {

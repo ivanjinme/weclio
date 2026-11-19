@@ -67,7 +67,7 @@ export async function requireAllowedDirectory(value: unknown): Promise<string> {
   if (typeof value !== "string" || !value.trim()) {
     throw new AgentProtocolError("invalid_argument", "cwd must be an absolute path");
   }
-  const cwd = value.trim();
+  const cwd = value;
   if (!cwd.startsWith("/") && !isWindowsAbsolutePath(cwd)) {
     throw new AgentProtocolError("invalid_argument", "cwd must be an absolute path");
   }
