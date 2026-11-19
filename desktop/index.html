@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="google" content="notranslate" />
     <title>weclio</title>
-    <!-- 与 Next layout 一致的启动前主题/侧栏宽度恢复；外置脚本以符合 script-src 'self'。 -->
-    <script src="./theme-boot.js"></script>
+    <!-- 与 Next layout 一致的启动前主题/侧栏宽度恢复；外置脚本以符合 script-src 'self'。
+         保持普通脚本（非 module）：module 会被 defer 到解析后执行，首帧会闪主题；
+         用 `/` 开头让 Vite 按 public 静态资源处理（相对路径会触发“can't be bundled”警告），
+         产物中再由 base: "./" 重写回 ./theme-boot.js。 -->
+    <script src="/theme-boot.js"></script>
   </head>
   <body translate="no" class="notranslate" style="height: 100dvh; display: flex; flex-direction: column">
     <div id="startup-splash" role="status" aria-label="正在启动 Weclio"></div>
