@@ -1,9 +1,10 @@
 # Release
 
-Desktop installers only. Low frequency: read this when building, signing or publishing a
-release. Daily development and checks live in `COMMANDS.md`.
+Web (npm) and Desktop (Windows installer) release steps. Daily development and checks live in `COMMANDS.md`.
 
-## Build and sign
+## Release Desktop (Windows installer)
+
+### Build and sign
 
 ```bash
 npm run setup:desktop-updates   # one-off; never overwrites existing key or config
@@ -12,7 +13,7 @@ npm run release:desktop
 (cd build/desktop/dist && sha256sum -c SHA256SUMS.txt)
 ```
 
-## Publish
+### Publish on GitHub Releases
 
 ```bash
 VERSION=$(node -p "require('./package.json').version")
@@ -25,7 +26,7 @@ gh release create "desktop-v$VERSION" --draft --target "$COMMIT" \
   "build/desktop/dist/SHA256SUMS.txt"
 ```
 
-## Constraints
+### Desktop release constraints
 
 - Tag `desktop-v*`, never `v*`.
 - Upload exactly those four artifacts. No dist wildcards, no `--clobber`.
@@ -36,4 +37,10 @@ gh release create "desktop-v$VERSION" --draft --target "$COMMIT" \
   a separate, explicitly approved action.
 - Ed25519 signs update metadata only, not Authenticode: Windows still shows an unknown publisher.
 - Acceptance needs a real installed A→B upgrade on a Windows VM, not a source-mode window.
-- Never run `npm run release`; npm publish is retired.
+
+## Release Web (`@weclio/web` on npm)
+
+`.github/workflows/publish.yml` publishes `@weclio/web` for `v<package.json version>` tags.
+It builds both the Next UI and the Agent Service, installs the tarball outside the checkout,
+and checks the installed CLI before publishing that same tarball. The `desktop-v*` tags do not
+trigger npm publishing. npm Trusted Publishing must authorize `publish.yml` for this package.
