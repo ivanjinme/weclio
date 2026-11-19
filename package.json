@@ -1,6 +1,6 @@
 {
   "name": "@weclio/web",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "Weclio web app: agent harness UI for the Pi coding agent",
   "keywords": [
     "weclio",
