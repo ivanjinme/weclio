@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 setlocal
-title Weclio 初始配置
+title Weclio 配置导入
 cd /d "%~dp0"
 
 set "DEST=%USERPROFILE%\.pi\agent"
@@ -10,10 +10,10 @@ for /f %%T in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss
 if not defined STAMP set "STAMP=manual"
 
 echo ============================================
-echo   Weclio 初始配置
+echo   Weclio 配置导入
 echo ============================================
 echo.
-echo 将把 models.json 和 tavily.json 复制到：
+echo 将导入模型和搜索配置（models.json、tavily.json）到：
 echo   %DEST%
 echo.
 
