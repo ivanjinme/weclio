@@ -302,6 +302,21 @@ export function PermissionPicker() {
   </>;
 }
 
+export function ProjectTrustButton({ onClick }: { onClick: () => void }) {
+  const { t } = useI18n();
+  const label = t("trust.resourcesNotLoaded");
+  return (
+    <button type="button" className="composer-control-chip composer-trust-chip" onClick={onClick} title={label} aria-label={label} aria-haspopup="dialog">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+        <path d="M12 8v4" />
+        <path d="M12 16h.01" />
+      </svg>
+      <span>{label}</span>
+    </button>
+  );
+}
+
 export interface ContextRingProps {
   usage: { percent: number | null; contextWindow: number; tokens: number | null } | null | undefined;
 }

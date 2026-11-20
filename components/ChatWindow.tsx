@@ -49,6 +49,7 @@ interface Props {
   modelsRefreshKey?: number;
   sessionReload: { sessionId: string } | null;
   chatInputRef?: React.RefObject<ChatInputHandle | null>;
+  onOpenProjectTrust?: () => void;
   onBranchDataChange?: (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => void;
   onSystemPromptChange?: (prompt: string | null) => void;
   onSessionStatsChange?: (stats: SessionStatsInfo | null) => void;
@@ -194,7 +195,7 @@ function ProcessDetailsGroup({ durationMs, toolCallCount, children, t }: { durat
   );
 }
 
-export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProjectPicker, onProjectSelect, onProjectClear, resolveNewSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, onSessionRenamed, onInitialContentReady, modelsRefreshKey, sessionReload, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, onOpenFile, onTurnChangesChange, onOpenChanges, playDoneSound, unlockAudio }: Props) {
+export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProjectPicker, onProjectSelect, onProjectClear, resolveNewSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, onSessionRenamed, onInitialContentReady, modelsRefreshKey, sessionReload, chatInputRef, onOpenProjectTrust, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onContextUsageChange, onOpenFile, onTurnChangesChange, onOpenChanges, playDoneSound, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMinimapHidden = useIsMobile(400);
   const wrappedOnAgentEnd = useCallback(() => {
@@ -406,6 +407,7 @@ export function ChatWindow({ session, newSessionCwd, newTaskDraftId, showProject
       onLoadSlashCommands={loadSlashCommands}
       onBuiltinCommand={handleBuiltinSlashCommand}
       onAudioUnlock={unlockAudio}
+      onOpenProjectTrust={onOpenProjectTrust}
       draftKey={session?.id ?? "new:task"}
       cwd={session?.cwd ?? newSessionCwd}
       autoFocus={isNew}

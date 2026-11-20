@@ -103,15 +103,21 @@
 .composer-control-option[aria-selected="true"],
 .composer-control-option[aria-checked="true"] { color: var(--text); }
 
-.composer-permission-chip { --permission-warning: #a96416; }
+.composer-permission-chip,
+.composer-permission-popover,
+.composer-trust-chip { --permission-warning: #a96416; }
 .dark .composer-permission-chip,
-.dark .composer-permission-popover { --permission-warning: #e5b55d; }
+.dark .composer-permission-popover,
+.dark .composer-trust-chip { --permission-warning: #e5b55d; }
 .composer-permission-chip[data-mode="fullAccess"],
 .composer-permission-chip[data-mode="fullAccess"]:hover,
-.composer-permission-chip[data-mode="fullAccess"][aria-expanded="true"] { color: var(--permission-warning); }
-.composer-permission-chip[data-mode="fullAccess"] { font-weight: 500; }
-.composer-permission-chip > svg { flex-shrink: 0; }
-.composer-permission-popover { --permission-warning: #a96416; }
+.composer-permission-chip[data-mode="fullAccess"][aria-expanded="true"],
+.composer-trust-chip,
+.composer-trust-chip:hover { color: var(--permission-warning); }
+.composer-permission-chip,
+.composer-trust-chip { font-weight: 500; }
+.composer-permission-chip > svg,
+.composer-trust-chip > svg { flex-shrink: 0; }
 .composer-permission-option { align-items: flex-start; gap: 8px; padding: 6px 8px; }
 .composer-permission-option > svg { margin-top: 3px; }
 .composer-permission-option[data-mode="fullAccess"] > svg:first-child,

@@ -84,6 +84,12 @@ test("shell footer groups permission separately from context, model, and circula
   assert.match(sendRule, /border-radius:\s*50%/);
 });
 
+test("restricted mode sits next to the permission picker only when project trust is available", () => {
+  assert.doesNotMatch(renderInput(), /aria-label="Restricted mode"/);
+  const html = renderInput({ onOpenProjectTrust() {} });
+  assert.match(html, /class="composer-shell-permission"><button[^>]*aria-label="Permission mode: Full access"[^>]*>[\s\S]*?<\/button><button[^>]*aria-label="Restricted mode"[^>]*>[\s\S]*?<span>Restricted mode<\/span><\/button><\/div>/);
+});
+
 test("composer uses the redesigned placeholder with English and Chinese messages", () => {
   assert.equal(enLocale.messages["chat.messagePlaceholder"], "Assign task, paste for image, @ for file, / for commands");
   assert.equal(zhCNLocale.messages["chat.messagePlaceholder"], "分配任务，粘贴图片，@ 引用文件，/ 调用命令");

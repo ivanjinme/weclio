@@ -228,10 +228,11 @@ test("AppShell ignores a trust POST that completes after switching projects", as
     assert.match(url, /^\/project-trust\?cwd=%2F[ab]$/);
     return Response.json({ requiresTrust: true, trusted: false });
   });
-  const trustButton = () => app.find((node) => node.props["aria-label"] === "trust.resourcesNotLoaded");
+  const openProjectTrust = () => app.chat().props.onOpenProjectTrust;
   const trustDialog = () => app.find((node) => node.type === "ProjectTrustDialog");
   const confirmTrust = () => {
-    trustButton().props.onClick();
+    assert.equal(app.find((node) => node.props["aria-label"] === "trust.resourcesNotLoaded"), undefined);
+    openProjectTrust()();
     app.flush();
     assert.equal(trustDialog().props.busy, false);
     trustDialog().props.onConfirm();
@@ -246,12 +247,12 @@ test("AppShell ignores a trust POST that completes after switching projects", as
   confirmTrust();
   trustA.resolve(Response.json({ requiresTrust: true, trusted: true }));
   await app.settle();
-  assert.ok(trustButton(), "B is still untrusted");
+  assert.equal(typeof openProjectTrust(), "function", "B is still untrusted");
   assert.equal(app.chat().key, chatKey, "B's chat did not remount");
   assert.equal(trustDialog().props.busy, true, "A cannot clear B's pending state");
   trustB.resolve(Response.json({ requiresTrust: true, trusted: true }));
   await app.settle();
-  assert.equal(trustButton(), undefined);
+  assert.equal(openProjectTrust(), undefined);
   assert.equal(trustDialog(), undefined);
   assert.notEqual(app.chat().key, chatKey, "B's own successful request remounts its chat");
 });

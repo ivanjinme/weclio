@@ -8,7 +8,7 @@ import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, Slas
 import { clearDraft, getDraft, setDraft, type ChatDraftImage } from "@/lib/draft-store";
 import { NewTaskProjectPicker } from "./NewTaskProjectPicker";
 import { ComposerEditor, type ComposerEditorHandle } from "./composer/ComposerEditor";
-import { ContextRing, ModelThinkingPicker, PermissionPicker } from "./composer/ComposerControls";
+import { ContextRing, ModelThinkingPicker, PermissionPicker, ProjectTrustButton } from "./composer/ComposerControls";
 import { composerText, completionText, extractSlashToken, restoreComposerText, serializeComposer, textParts, type ComposerPart } from "@/lib/composer";
 import {
   MAX_ATTACHED_IMAGE_BYTES,
@@ -60,6 +60,7 @@ interface Props {
   onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
   onBuiltinCommand?: (message: string) => Promise<BuiltinSlashCommandResult>;
   onAudioUnlock?: () => void;
+  onOpenProjectTrust?: () => void;
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
@@ -227,6 +228,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   onAudioUnlock,
+  onOpenProjectTrust,
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
@@ -1442,7 +1444,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           />
           </div>
           <div className="composer-shell-footer">
-            <div className="composer-shell-permission"><PermissionPicker /></div>
+            <div className="composer-shell-permission">
+              <PermissionPicker />
+              {onOpenProjectTrust && <ProjectTrustButton onClick={onOpenProjectTrust} />}
+            </div>
             <div className="composer-shell-actions">
               <ContextRing usage={contextUsage} />
               <ModelThinkingPicker

@@ -806,49 +806,6 @@ function ConfiguredAppShell() {
               </svg>
             </button>
           )}
-          {showChat && projectTrust?.requiresTrust && !projectTrust.trusted && (
-            <button
-              type="button"
-              onClick={() => {
-                setProjectTrustError(null);
-                setProjectTrustDialogOpen(true);
-              }}
-              title={translate("trust.resourcesNotLoaded")}
-              aria-label={translate("trust.resourcesNotLoaded")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                height: "100%",
-                padding: isMobile ? "0 10px" : "0 12px",
-                background: "none",
-                border: "none",
-                borderRight: "1px solid var(--border)",
-                color: "#d97706",
-                cursor: "pointer",
-                flexShrink: 0,
-                fontSize: 11,
-                whiteSpace: "nowrap",
-              }}
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-                <path d="M12 8v4" />
-                <path d="M12 16h.01" />
-              </svg>
-              {!isMobile && <span>{translate("trust.resourcesNotLoaded")}</span>}
-            </button>
-          )}
         </div>
 
         {/* Chat content */}
@@ -870,6 +827,10 @@ function ConfiguredAppShell() {
               modelsRefreshKey={modelsRefreshKey}
               sessionReload={sessionReload}
               chatInputRef={chatInputRef}
+              onOpenProjectTrust={projectTrust?.requiresTrust && !projectTrust.trusted ? () => {
+                setProjectTrustError(null);
+                setProjectTrustDialogOpen(true);
+              } : undefined}
               onInitialContentReady={handleInitialContentReady}
               onOpenFile={handleOpenLinkedFile}
               onTurnChangesChange={handleTurnChangesChange}

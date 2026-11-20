@@ -51,9 +51,16 @@
 }
 
 .composer-shell-permission {
+  display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
   min-width: min-content;
+  max-width: 100%;
 }
+
+.composer-shell-footer:has(.composer-trust-chip) { flex-wrap: wrap; }
+.composer-shell-footer:has(.composer-trust-chip) > .composer-shell-actions { margin-inline-start: auto; }
 
 .composer-shell-actions {
   display: flex;
