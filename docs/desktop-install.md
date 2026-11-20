@@ -5,15 +5,17 @@
 1. 双击 `node-v26.13.0-x64.msi`，一路「下一步」装完。
 2. 双击 `Weclio-<版本>-x64-Setup.exe`，装到默认目录。
 3. 双击 `Git-2.56.1-64-bit.exe`，装到默认目录。
-4. 双击桌面上的 Weclio 图标打开。
+4. 双击 `setup.bat`，把模型和搜索配置写进 Weclio（它会先备份原有同名文件）。
+5. 双击桌面上的 Weclio 图标打开。
 
+## 二、setup.bat 做了什么
 
-## 二、开始使用
+它把同目录的 `models.json` 和 `tavily.json` 复制到 `C:/Users/<你的用户名>/.pi/agent/`：
 
-选择模型：
+- `models.json`：已配好的模型列表，打开就能在「设置 → 模型」里选。
+- `tavily.json`：网页搜索用的 Tavily key。想换成自己的，用记事本改 `apiKey`（在 https://tavily.com 注册获取），保存后下一轮对话生效。
 
-- 已有订阅：设置 → 模型 → 添加服务商；
-- 没有额度：发邮件到 ivanjin@weclio.com 获取测试额度。
+如果目录里已有同名文件，脚本会先存成 `文件名.bak-时间`，不会直接覆盖丢失。
 
 ## 三、让 Agent 安装或更新扩展包
 
@@ -22,14 +24,6 @@
 > 请帮我安装或更新 Weclio 的两个扩展包：从 npm 安装最新版 `@weclio/plugins` 和 `@weclio/tox`，并把它们注册到 Pi 用户配置里，保留其他设置。
 
 安装成功后，在**当前对话**输入 `/reload`，不用重启 Weclio。以后更新时，把上面这句话再发一次即可。
-
-**配置 Tavily key（可选，用于网页搜索）**
-
-1. 把本目录的 `tavily.json` 复制到 `C:/Users/<你的用户名>/.pi/agent/`。
-2. 用记事本打开它，把 `apiKey` 填成你在 https://tavily.com 注册后拿到的 key，保存即可。
-3. 不需要重启，下一轮对话生效。
-
-没有 key 也能用：只在模型自带网页搜索时可用，否则搜索工具不可用。
 
 ## 四、可用技能
 
