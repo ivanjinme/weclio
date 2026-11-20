@@ -43,6 +43,6 @@ for %%F in (models.json tavily.json) do (
 )
 
 echo.
-echo 下一步：打开 Weclio，在「设置 - 模型」里选择要用的模型即可。
+echo 下一步：打开 Weclio，在对话框选择模型，随便问一句试试。
 echo.
 pause
