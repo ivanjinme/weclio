@@ -85,7 +85,7 @@
       }
     ],
     "icon": "public/brand/app-icon.ico",
-    "signAndEditExecutable": false,
+    "signExecutable": false,
     "artifactName": "Weclio-${version}-${arch}-Setup.${ext}"
   },
   "nsis": {

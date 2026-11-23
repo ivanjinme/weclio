@@ -75,6 +75,12 @@ test("production updater cache matches the installer cache instead of the develo
   assert.equal((await new Updater().loadUpdateConfig()).updaterCacheDirName, packager.updaterCacheDirName);
 });
 
+test("Windows packaging applies the branded executable icon without code signing", () => {
+  assert.equal(config.win.icon, "public/brand/app-icon.ico");
+  assert.equal(config.win.signExecutable, false);
+  assert.notEqual(config.win.signAndEditExecutable, false);
+});
+
 test("desktop metadata supplies the branded Windows shortcut description", () => {
   assert.equal(config.extraMetadata.description, "Weclio - Build an AI Scientist");
 });
