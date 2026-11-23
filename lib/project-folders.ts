@@ -2,17 +2,22 @@ const STORAGE_KEY = "weclio:project-folders";
 const HIDDEN_STORAGE_KEY = "weclio:hidden-project-folders";
 export const PROJECT_FOLDERS_CHANGED_EVENT = "weclio:project-folders-changed";
 
-function loadStringArray(key: string): string[] {
+export interface ProjectFolderEntry {
+  root: string;
+  addedAt: string;
+}
+
+function loadArray(key: string): unknown[] {
   if (typeof window === "undefined") return [];
   try {
     const value = JSON.parse(window.localStorage.getItem(key) ?? "[]") as unknown;
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+    return Array.isArray(value) ? value : [];
   } catch {
     return [];
   }
 }
 
-function saveStringArray(key: string, values: string[]): void {
+function saveArray(key: string, values: readonly (string | ProjectFolderEntry)[]): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(values));
   } catch {
@@ -31,12 +36,23 @@ function notifyChanged(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(PROJECT_FOLDERS_CHANGED_EVENT));
 }
 
+export function loadProjectFolderEntries(): ProjectFolderEntry[] {
+  return loadArray(STORAGE_KEY).flatMap((item) => {
+    if (typeof item === "string") return [{ root: item, addedAt: "" }];
+    if (item && typeof item === "object" && "root" in item && typeof item.root === "string"
+      && "addedAt" in item && typeof item.addedAt === "string") {
+      return [{ root: item.root, addedAt: item.addedAt }];
+    }
+    return [];
+  });
+}
+
 export function loadProjectFolders(): string[] {
-  return loadStringArray(STORAGE_KEY);
+  return loadProjectFolderEntries().map(({ root }) => root);
 }
 
 export function loadHiddenProjectFolders(): string[] {
-  return loadStringArray(HIDDEN_STORAGE_KEY);
+  return loadArray(HIDDEN_STORAGE_KEY).filter((item): item is string => typeof item === "string");
 }
 
 export function isProjectFolderHidden(root: string, hidden = loadHiddenProjectFolders()): boolean {
@@ -46,7 +62,7 @@ export function isProjectFolderHidden(root: string, hidden = loadHiddenProjectFo
 
 function hideProjectFolder(root: string): void {
   const hidden = loadHiddenProjectFolders();
-  if (!isProjectFolderHidden(root, hidden)) saveStringArray(HIDDEN_STORAGE_KEY, [...hidden, root]);
+  if (!isProjectFolderHidden(root, hidden)) saveArray(HIDDEN_STORAGE_KEY, [...hidden, root]);
   notifyChanged();
 }
 
@@ -54,31 +70,39 @@ function unhideProjectFolder(root: string): void {
   const key = projectPathKey(root);
   const hidden = loadHiddenProjectFolders();
   const next = hidden.filter((item) => projectPathKey(item) !== key);
-  if (next.length !== hidden.length) saveStringArray(HIDDEN_STORAGE_KEY, next);
+  if (next.length !== hidden.length) saveArray(HIDDEN_STORAGE_KEY, next);
   notifyChanged();
 }
 
-export function rememberProjectFolder(cwd: string): string[] {
-  const folders = loadProjectFolders();
-  const next = folders.some((folder) => projectPathKey(folder) === projectPathKey(cwd))
+export function rememberProjectFolder(cwd: string): ProjectFolderEntry[] {
+  const folders = loadProjectFolderEntries();
+  const key = projectPathKey(cwd);
+  const next = folders.some(({ root }) => projectPathKey(root) === key)
     ? folders
-    : [...folders, cwd];
-  saveStringArray(STORAGE_KEY, next);
+    : [...folders, { root: cwd, addedAt: new Date().toISOString() }];
+  saveArray(STORAGE_KEY, next);
   unhideProjectFolder(cwd);
   return next;
 }
 
-export function replaceProjectFolder(previousRoot: string, nextRoot: string): string[] {
-  const folders = loadProjectFolders().filter((path) => path !== previousRoot);
-  const next = folders.includes(nextRoot) ? folders : [...folders, nextRoot];
-  saveStringArray(STORAGE_KEY, next);
+export function replaceProjectFolder(previousRoot: string, nextRoot: string): ProjectFolderEntry[] {
+  const folders = loadProjectFolderEntries();
+  const previousKey = projectPathKey(previousRoot);
+  const nextKey = projectPathKey(nextRoot);
+  const previous = folders.find(({ root }) => projectPathKey(root) === previousKey);
+  const remaining = folders.filter(({ root }) => projectPathKey(root) !== previousKey);
+  const next = remaining.some(({ root }) => projectPathKey(root) === nextKey)
+    ? remaining
+    : [...remaining, { root: nextRoot, addedAt: previous?.addedAt ?? "" }];
+  saveArray(STORAGE_KEY, next);
   unhideProjectFolder(nextRoot);
   return next;
 }
 
-export function forgetProjectFolder(root: string): string[] {
-  const next = loadProjectFolders().filter((path) => path !== root);
-  saveStringArray(STORAGE_KEY, next);
+export function forgetProjectFolder(root: string): ProjectFolderEntry[] {
+  const key = projectPathKey(root);
+  const next = loadProjectFolderEntries().filter((folder) => projectPathKey(folder.root) !== key);
+  saveArray(STORAGE_KEY, next);
   hideProjectFolder(root);
   return next;
 }

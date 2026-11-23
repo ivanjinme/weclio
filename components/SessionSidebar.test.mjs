@@ -7,7 +7,7 @@ import { runInNewContext } from "node:vm";
 
 const jiti = createJiti(import.meta.url);
 const { visibleThreadRoots, threadTitleIds, sessionDisplayTitle } = await jiti.import("../lib/sidebar-session-list.ts");
-const { projectPathKey, isProjectFolderHidden } = await jiti.import("../lib/project-folders.ts");
+const { projectPathKey, isProjectFolderHidden, loadProjectFolderEntries, loadProjectFolders, rememberProjectFolder, replaceProjectFolder, forgetProjectFolder } = await jiti.import("../lib/project-folders.ts");
 
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const sessionItemSource = source.slice(source.indexOf("function SessionItem("));
@@ -306,7 +306,14 @@ test("pinned threads are excluded before building project history trees", () => 
 });
 
 test("pinned projects are excluded before project pagination and selection", () => {
-  assert.match(source, /const unpinnedProjectGroups = useMemo\(\(\) => projectGroups\.filter\(\(group\) =>\s*projectPathKey\(group\.root\) !== projectPathKey\(defaultWorkspace \?\? ""\) && !pinnedProjects\.has\(projectPathKey\(group\.root\)\)/);
+  const pinned = { root: "/pinned", modified: "2026-01-02" };
+  const projects = Array.from({ length: 6 }, (_, index) => ({ root: `/project-${index}`, modified: "2026-01-01" }));
+  const { visibleProjectGroups } = runSidebarMemos(["unpinnedProjectGroups", "visibleProjectGroups"], {
+    projectGroups: [pinned, ...projects], projectFolders: [], defaultWorkspace: null,
+    pinnedProjects: new Set([pinned.root]), selectedProject: pinned.root,
+    normalizedSessionSearch: "", allProjectsVisible: false,
+  });
+  assert.deepEqual(Array.from(visibleProjectGroups), projects.slice(0, 5));
   assert.match(source, /const visible = unpinnedProjectGroups\.slice\(0, 5\);/);
   assert.match(source, /const selected = unpinnedProjectGroups\.find/);
   assert.match(source, /Show \$\{unpinnedProjectGroups\.length - 5\} more projects/);
@@ -440,17 +447,48 @@ test("Tasks titles load only for visible history even when Projects is collapsed
   assert.deepEqual(requests[2], [...group.roots.slice(15).map((node) => node.session.id), "child"]);
 });
 
-test("default workspace path aliases are Tasks, never project rows or project pins", () => {
+function runSidebarMemos(names, context) {
   const ast = ts.createSourceFile("SessionSidebar.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const component = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "SessionSidebar");
-  const names = new Set(["visiblePins", "tasksGroup", "unpinnedProjectGroups"]);
   const statements = component.body.statements.filter((node) => ts.isVariableStatement(node)
-    && names.has(node.declarationList.declarations[0].name.getText(ast)));
+    && names.includes(node.declarationList.declarations[0].name.getText(ast)));
   const compiled = ts.transpileModule(`(function () {
     ${ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "buildSessionTree").getText(ast)}
     ${statements.map((node) => node.getText(ast)).join("\n")}
-    return { visiblePins, tasksGroup, unpinnedProjectGroups };
+    return { ${names.join(", ")} };
   })()`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  return runInNewContext(compiled, { useMemo: (callback) => callback(), projectPathKey, isProjectFolderHidden, sessionDisplayTitle, ...context });
+}
+
+test("Projects sorts by the later of folder addition and session activity", (t) => {
+  const storage = new Map([["weclio:project-folders", JSON.stringify(["/legacy-empty"])]]);
+  globalThis.window = {
+    localStorage: { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) },
+    dispatchEvent() {},
+  };
+  t.after(() => { delete globalThis.window; });
+
+  const root = "C:/New";
+  const addedAt = rememberProjectFolder(root).at(-1).addedAt;
+  assert.deepEqual(loadProjectFolders(), ["/legacy-empty", root]);
+  assert.equal(rememberProjectFolder("c:/new/").at(-1).addedAt, addedAt);
+  const active = { id: "session", cwd: "/active", modified: new Date(Date.parse(addedAt) - 1).toISOString() };
+  const others = ["c:/new/", "/other-1", "/other-2", "/other-3"].map((cwd) => ({ ...active, id: cwd, cwd }));
+  const order = () => Array.from(runSidebarMemos(["projectGroups", "unpinnedProjectGroups", "visibleProjectGroups"], {
+    allSessions: [active, ...others],
+    normalizedSessionSearch: "", hiddenProjectFolders: [], selectedProject: null,
+    pinnedSessionIds: new Set(), pinnedProjects: new Set(), defaultWorkspace: null,
+    projectFolders: loadProjectFolderEntries(), allProjectsVisible: false,
+  }).visibleProjectGroups, (group) => group.root);
+  assert.equal(order()[0], root);
+  active.modified = new Date(Date.parse(addedAt) + 1).toISOString();
+  assert.deepEqual(order().slice(0, 2), [active.cwd, root]);
+  assert.deepEqual(replaceProjectFolder(root, "/moved").at(-1), { root: "/moved", addedAt });
+  forgetProjectFolder("/moved");
+  assert.deepEqual(loadProjectFolders(), ["/legacy-empty"]);
+});
+
+test("default workspace path aliases are Tasks, never project rows or project pins", () => {
   const task = { id: "task", cwd: "C:/Users/Test/Workspace", name: "Pinned task", firstMessage: "" };
   const workspace = { root: "C:\\Users\\Test\\Workspace\\", sessions: [task], roots: [] };
   const child = { id: "child", cwd: "c:/users/test/workspace/", parentSessionId: task.id, modified: "2026-01-02" };
@@ -458,9 +496,8 @@ test("default workspace path aliases are Tasks, never project rows or project pi
   const project = { root: "C:/real-project", sessions: [], roots: [] };
   const pinned = { root: "C:/pinned-project", sessions: [], roots: [] };
   for (const defaultWorkspace of ["c:/users/test/workspace", "C:\\USERS\\TEST\\WORKSPACE\\"]) {
-    const result = runInNewContext(compiled, {
-      useMemo: (callback) => callback(), projectPathKey, isProjectFolderHidden, sessionDisplayTitle,
-      defaultWorkspace, projectGroups: [workspace, alias, project, pinned],
+    const result = runSidebarMemos(["visiblePins", "tasksGroup", "unpinnedProjectGroups"], {
+      defaultWorkspace, projectFolders: [], projectGroups: [workspace, alias, project, pinned],
       allSessions: [task], hiddenProjectFolders: [], normalizedSessionSearch: "", projectLabels: {},
       projectDefaultLabel: (root) => root,
       pinnedProjects: new Set([projectPathKey(pinned.root)]),

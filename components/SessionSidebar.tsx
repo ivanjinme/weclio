@@ -19,10 +19,11 @@ import {
   forgetProjectFolder,
   isProjectFolderHidden,
   loadHiddenProjectFolders,
-  loadProjectFolders,
+  loadProjectFolderEntries,
   projectPathKey,
   rememberProjectFolder,
   replaceProjectFolder,
+  type ProjectFolderEntry,
 } from "@/lib/project-folders";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -527,7 +528,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [allProjectsVisible, setAllProjectsVisible] = useState(false);
   const [projectVisibleCounts, setProjectVisibleCounts] = useState<Record<string, number>>({});
   const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
-  const [projectFolders, setProjectFolders] = useState<string[]>([]);
+  const [projectFolders, setProjectFolders] = useState<ProjectFolderEntry[]>([]);
   const [hiddenProjectFolders, setHiddenProjectFolders] = useState<string[]>(() => loadHiddenProjectFolders());
   const [pins, setPins] = useState<SidebarPin[]>([]);
   const [pinsOpen, setPinsOpen] = useState(true);
@@ -553,7 +554,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   useEffect(() => {
     const reloadProjectFolders = () => {
-      setProjectFolders(loadProjectFolders());
+      setProjectFolders(loadProjectFolderEntries());
       setHiddenProjectFolders(loadHiddenProjectFolders());
     };
     reloadProjectFolders();
@@ -883,7 +884,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
 
     if (!normalizedSessionSearch) {
-      for (const root of projectFolders) {
+      for (const { root } of projectFolders) {
         if (!isProjectFolderHidden(root, hiddenProjectFolders) && !groups.has(root)) {
           groups.set(root, { root, sessions: [], modified: "" });
         }
@@ -930,9 +931,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       modified: groups[0]?.modified ?? "",
     };
   }, [defaultWorkspace, projectGroups]);
-  const unpinnedProjectGroups = useMemo(() => projectGroups.filter((group) =>
-    projectPathKey(group.root) !== projectPathKey(defaultWorkspace ?? "") && !pinnedProjects.has(projectPathKey(group.root))
-  ), [defaultWorkspace, pinnedProjects, projectGroups]);
+  const unpinnedProjectGroups = useMemo(() => {
+    const addedAtByRoot = new Map(projectFolders.map(({ root, addedAt }) => [root, addedAt]));
+    const activity = (group: (typeof projectGroups)[number]) => {
+      const addedAt = addedAtByRoot.get(group.root) ?? "";
+      return addedAt > group.modified ? addedAt : group.modified;
+    };
+    return projectGroups.filter((group) =>
+      projectPathKey(group.root) !== projectPathKey(defaultWorkspace ?? "") && !pinnedProjects.has(projectPathKey(group.root))
+    ).sort((a, b) => activity(b).localeCompare(activity(a)));
+  }, [defaultWorkspace, pinnedProjects, projectFolders, projectGroups]);
   const visibleProjectGroups = useMemo(() => {
     if (normalizedSessionSearch || allProjectsVisible || unpinnedProjectGroups.length <= 5) return unpinnedProjectGroups;
 
