@@ -300,7 +300,7 @@ export const zhCNLocale: LocalePlugin = {
     "trust.trusting": "正在信任...",
     "trust.cancel": "取消",
     "trust.dialogTitle": "信任此项目？",
-    "trust.dialogBody": "项目资源可以运行本地代码。请仅信任你了解其内容的项目。",
+    "trust.dialogBody": "项目资源可以运行本地代码。信任适用于此目录及其子目录（包括以后新增的子目录），除非子目录另有信任设置。请仅信任你了解其内容的目录。",
     "trust.skillsNotLoaded": "此项目尚未受信任，项目技能未加载。",
     "trust.pluginsNotLoaded": "此项目尚未受信任，项目插件未加载。",
     "trust.projectScopeUnavailable": "项目资源未加载时，无法安装到项目范围。",

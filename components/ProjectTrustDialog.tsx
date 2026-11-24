@@ -6,12 +6,14 @@ export function ProjectTrustDialog({
   cwd,
   busy,
   error,
+  autoFocusCancel = false,
   onCancel,
   onConfirm,
 }: {
   cwd: string;
   busy: boolean;
   error: string | null;
+  autoFocusCancel?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -106,6 +108,7 @@ export function ProjectTrustDialog({
           <button
             type="button"
             onClick={onCancel}
+            autoFocus={autoFocusCancel}
             disabled={busy}
             style={{
               height: 32,

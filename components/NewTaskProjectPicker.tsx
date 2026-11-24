@@ -12,7 +12,7 @@ import {
   projectPathKey,
 } from "@/lib/project-folders";
 import { useI18n } from "@/hooks/useI18n";
-import { DirectoryPicker } from "./DirectoryPicker";
+import { ProjectFolderPicker } from "./ProjectFolderPicker";
 import { apiUrl } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
 
@@ -66,8 +66,7 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
   );
   const [hiddenProjectFolders, setHiddenProjectFolders] = useState<string[]>(() => loadHiddenProjectFolders());
   const [position, setPosition] = useState<{ left: number; bottom: number } | null>(null);
-  const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
-  const [validating, setValidating] = useState(false);
+  const [folderPickerKey, setFolderPickerKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -112,7 +111,7 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
 
   useEffect(() => {
     setOpen(false);
-    setDirectoryPickerOpen(false);
+    setFolderPickerKey(null);
     setError(null);
     setQuery("");
   }, [resetKey]);
@@ -201,29 +200,6 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
     onFocusComposer();
   }, [onClear, onFocusComposer]);
 
-  const selectFromBrowser = useCallback(async (candidate: string) => {
-    if (validating) return;
-    setValidating(true);
-    setError(null);
-    try {
-      const response = await apiFetch(apiUrl("/cwd/validate"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: candidate }),
-      });
-      const data = await response.json().catch(() => ({})) as { cwd?: string; error?: string };
-      if (!response.ok || !data.cwd) throw new Error(data.error ?? `HTTP ${response.status}`);
-      rememberProjectFolder(data.cwd);
-      onSelect(data.cwd);
-      setDirectoryPickerOpen(false);
-      onFocusComposer();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setValidating(false);
-    }
-  }, [onFocusComposer, onSelect, validating]);
-
   const noProject = !selectedCwd || (defaultWorkspace !== null && normalizeRoot(selectedCwd) === normalizeRoot(defaultWorkspace));
   const selectedProject = defaultWorkspace !== null && !noProject ? selectedCwd : null;
   const selectedKey = selectedProject ? normalizeRoot(selectedProject) : null;
@@ -300,7 +276,7 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
             })}
           </div>
           <div className="project-popover-footer">
-            <button type="button" className="project-popover-action" onClick={() => { setOpen(false); setDirectoryPickerOpen(true); }}>
+            <button type="button" className="project-popover-action" onClick={() => { setOpen(false); setFolderPickerKey(resetKey); }}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><line x1="8" y1="3" x2="8" y2="13" /><line x1="3" y1="8" x2="13" y2="8" /></svg>
               {t("chat.newProject")}
             </button>
@@ -316,12 +292,17 @@ export function NewTaskProjectPicker({ resetKey, selectedCwd, onSelect, onClear,
         document.body,
       )}
 
-      {directoryPickerOpen && (
-        <DirectoryPicker
-          busy={validating}
-          error={error}
-          onCancel={() => { setDirectoryPickerOpen(false); setError(null); }}
-          onSelect={(cwd) => void selectFromBrowser(cwd)}
+      {folderPickerKey === resetKey && (
+        <ProjectFolderPicker
+          onCancel={() => {
+            setFolderPickerKey(null);
+            requestAnimationFrame(() => triggerRef.current?.focus());
+          }}
+          onSelect={(cwd) => {
+            rememberProjectFolder(cwd);
+            setFolderPickerKey(null);
+            chooseProject(cwd);
+          }}
         />
       )}
     </div>

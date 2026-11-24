@@ -31,6 +31,7 @@ import { bindWindowControlsOverlay } from "@/lib/window-controls-overlay";
 import { dismissStartupSplash } from "@/lib/dismiss-startup-splash";
 import type { SessionInfo } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
+import { PROJECT_FOLDER_CONFIRMED_EVENT } from "@/lib/project-folders";
 import type { ChatInputHandle } from "./ChatInput";
 import { apiUrl, isApiBaseConfigured } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
@@ -618,19 +619,33 @@ function ConfiguredAppShell() {
     const scope = projectTrustScopeRef.current;
     if (!scope || scope.cwd !== projectTrustCwd) return;
 
-    const controller = new AbortController();
-    apiFetch(apiUrl(`/project-trust?cwd=${encodeURIComponent(scope.cwd)}`), {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const data = await response.json() as ProjectTrustStatus & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
-        if (projectTrustScopeRef.current === scope && !controller.signal.aborted) setProjectTrust(data);
+    let request: AbortController | undefined;
+    const loadProjectTrust = () => {
+      if (projectTrustScopeRef.current !== scope) return;
+      request?.abort();
+      const controller = new AbortController();
+      request = controller;
+      apiFetch(apiUrl(`/project-trust?cwd=${encodeURIComponent(scope.cwd)}`), {
+        signal: controller.signal,
       })
-      .catch((error) => {
-        if (projectTrustScopeRef.current === scope && !controller.signal.aborted) console.error("Failed to load project trust:", error);
-      });
-    return () => controller.abort();
+        .then(async (response) => {
+          const data = await response.json() as ProjectTrustStatus & { error?: string };
+          if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+          if (projectTrustScopeRef.current === scope && !controller.signal.aborted) setProjectTrust(data);
+        })
+        .catch((error) => {
+          if (projectTrustScopeRef.current === scope && !controller.signal.aborted) console.error("Failed to load project trust:", error);
+        });
+    };
+    const handleFolderConfirmed = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === scope.cwd) loadProjectTrust();
+    };
+    loadProjectTrust();
+    window.addEventListener(PROJECT_FOLDER_CONFIRMED_EVENT, handleFolderConfirmed);
+    return () => {
+      window.removeEventListener(PROJECT_FOLDER_CONFIRMED_EVENT, handleFolderConfirmed);
+      request?.abort();
+    };
   }, [projectTrustCwd]);
 
   const handleTrustProject = useCallback(async () => {

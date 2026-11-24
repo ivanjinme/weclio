@@ -1,8 +1,8 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { AgentProtocolError } from "./protocol/validate";
 import type { AgentRuntime } from "../rpc-manager";
 import {
@@ -105,6 +105,32 @@ export async function browseWorkspace(requested?: string | null): Promise<Browse
     parentPath: getParentDirectory(resolved),
     directories: await listDirectories(resolved),
   };
+}
+
+/** 仅在用户确认后调用；信任落盘后才授权文件访问。 */
+export function selectProject(value: unknown): { cwd: string } {
+  if (typeof value !== "string" || !isAbsolute(value) || value.includes("\0")) {
+    throw new AgentProtocolError("invalid_argument", "cwd must be an absolute directory path");
+  }
+
+  let cwd: string;
+  let directory: boolean;
+  try {
+    cwd = realpathSync.native(value);
+    directory = statSync(cwd).isDirectory();
+  } catch (cause) {
+    if (!["ENOENT", "ENOTDIR", "ELOOP", "ENAMETOOLONG"].includes((cause as NodeJS.ErrnoException).code ?? "")) throw cause;
+    throw new AgentProtocolError("invalid_argument", "cwd must be an existing directory", { cause });
+  }
+  if (!directory) throw new AgentProtocolError("invalid_argument", "cwd must be an existing directory");
+  // 只接受浏览接口返回的真实路径，不信任后来被链接替换的目录。
+  if (cwd !== value) throw new AgentProtocolError("conflict", "Folder path changed; select it again before trusting");
+
+  new ProjectTrustStore(getAgentDir()).set(cwd, true);
+  // 模型查询可能缓存了已授权目录在信任前的受限结果。
+  invalidateModelsCache();
+  allowFileRoot(cwd);
+  return { cwd };
 }
 
 /** cwd 必须已被允许的根覆盖，避免用 trust 接口探测任意路径。 */

@@ -7,12 +7,21 @@ import ts from "typescript";
 
 const jiti = createJiti(import.meta.url);
 const folders = await jiti.import("../lib/project-folders.ts");
-const source = await readFile(new URL("./NewTaskProjectPicker.tsx", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
-}).outputText;
+async function compileComponent(name) {
+  const source = await readFile(new URL(`./${name}.tsx`, import.meta.url), "utf8");
+  return ts.transpileModule(source, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText;
+}
+const [compiled, compiledFolderPicker] = await Promise.all([
+  compileComponent("NewTaskProjectPicker"), compileComponent("ProjectFolderPicker"),
+]);
 const DEFAULT = "D:/Configured/Task Home/";
-const messages = { "chat.chooseProject": "Choose project", "chat.noProjectMode": "No project mode" };
+const messages = {
+  "chat.chooseProject": "Choose project",
+  "chat.noProjectMode": "No project mode",
+  "chat.newProject": "New project",
+};
 const response = (data, ok = true, status = 200) => ({ ok, status, json: async () => data });
 const deferred = () => {
   let resolve;
@@ -34,11 +43,19 @@ const text = (tree) => {
 const hasCheck = (node) => nodes(node).some((child) => child.type === "polyline");
 
 // 保留完整组件与 hooks 生命周期，只替换浏览器边界。
-function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fetchDefault = async () => response({ cwd: DEFAULT }) } = {}) {
-  const slots = [];
+function pickerHarness({
+  selectedCwd = null, localRoots = [], sessions = [],
+  fetchDefault = async () => response({ cwd: DEFAULT }),
+  fetchProject,
+} = {}) {
+  const parentSlots = [];
+  let folderSlots = null;
+  let slots = parentSlots;
   const effects = [];
   const requests = [];
   const actions = [];
+  const window = Object.assign(new EventTarget(), { innerWidth: 1000, innerHeight: 800 });
+  window.addEventListener(folders.PROJECT_FOLDER_CONFIRMED_EVENT, (event) => actions.push(["confirmed", event.detail]));
   let cursor = 0;
   let dirty = true;
   let tree;
@@ -56,30 +73,34 @@ function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fet
     if (!slots[index] || changed(slots[index].deps, deps)) slots[index] = { deps, value: factory() };
     return slots[index].value;
   };
+  function effect(callback, deps) {
+    const owner = slots;
+    const index = cursor++;
+    const previous = owner[index];
+    if (changed(previous?.deps, deps)) {
+      owner[index] = { deps, cleanup: previous?.cleanup };
+      effects.push(() => {
+        owner[index].cleanup?.();
+        owner[index].cleanup = callback();
+      });
+    }
+  }
   const hooks = {
     useState(initial) {
+      const owner = slots;
       const index = cursor++;
-      if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;
-      return [slots[index], (update) => {
-        if (unmounted) lateStateUpdates++;
-        const value = typeof update === "function" ? update(slots[index]) : update;
-        if (!Object.is(value, slots[index])) { slots[index] = value; dirty = true; }
+      if (!(index in owner)) owner[index] = typeof initial === "function" ? initial() : initial;
+      return [owner[index], (update) => {
+        if (unmounted || (owner !== parentSlots && owner !== folderSlots)) lateStateUpdates++;
+        const value = typeof update === "function" ? update(owner[index]) : update;
+        if (!Object.is(value, owner[index])) { owner[index] = value; dirty = true; }
       }];
     },
     useRef: (initial) => { const index = cursor++; return slots[index] ??= { current: initial }; },
     useMemo: memo,
     useCallback: (callback, deps) => memo(() => callback, deps),
-    useEffect(callback, deps) {
-      const index = cursor++;
-      const previous = slots[index];
-      if (changed(previous?.deps, deps)) {
-        slots[index] = { deps, cleanup: previous?.cleanup };
-        effects.push(() => {
-          slots[index].cleanup?.();
-          slots[index].cleanup = callback();
-        });
-      }
-    },
+    useEffect: effect,
+    useLayoutEffect: effect,
   };
   const element = (type, props) => ({ type, props: props ?? {} });
   const domNode = {
@@ -98,38 +119,61 @@ function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fet
     react: hooks,
     "react/jsx-runtime": { jsx: element, jsxs: element },
     "react-dom": { createPortal: (child) => child },
-    "@/lib/project-folders": { ...folders, loadProjectFolders: () => localRoots, loadHiddenProjectFolders: () => [] },
+    "@/lib/project-folders": {
+      ...folders,
+      loadProjectFolders: () => localRoots,
+      loadHiddenProjectFolders: () => [],
+      rememberProjectFolder: (cwd) => actions.push(["remember", cwd]),
+    },
     "@/hooks/useI18n": { useI18n: () => ({ t: (key) => messages[key] ?? key }) },
+    "./ProjectFolderPicker": { ProjectFolderPicker: "ProjectFolderPicker" },
     "./DirectoryPicker": { DirectoryPicker: "DirectoryPicker" },
+    "./ProjectTrustDialog": { ProjectTrustDialog: "ProjectTrustDialog" },
   };
   const exports = {};
   const sandbox = {
     exports, require: (name) => { assert.ok(name in modules, `Unexpected import: ${name}`); return modules[name]; },
-    AbortController,
+    AbortController, CustomEvent,
     fetch: (url, options) => {
       requests.push({ url, options });
       if (url === "/api/cwd/default") return fetchDefault(options);
-      assert.equal(url, "/api/sessions");
-      return Promise.resolve(response({ sessions }));
+      if (url === "/api/sessions") return Promise.resolve(response({ sessions }));
+      assert.ok(fetchProject, `Unexpected project request: ${url}`);
+      return fetchProject(url, options);
     },
-    window: { innerWidth: 1000, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+    window,
     document: { body: {}, addEventListener() {}, removeEventListener() {} },
     requestAnimationFrame: () => 1, cancelAnimationFrame() {},
   };
+  const folderExports = {};
+  runInNewContext(compiledFolderPicker, { ...sandbox, exports: folderExports });
   runInNewContext(compiled, sandbox);
+  function cleanUp(owner) {
+    for (const slot of owner ?? []) slot?.cleanup?.();
+  }
   function flush() {
     for (let count = 0; dirty && !unmounted; count++) {
       assert.ok(count < 20, "component entered a render loop");
       dirty = false;
       cursor = 0;
+      slots = parentSlots;
       tree = exports.NewTaskProjectPicker(props);
+      const folder = nodes(tree).find((node) => node.type === "ProjectFolderPicker");
+      if (folder) {
+        slots = folderSlots ??= [];
+        cursor = 0;
+        folder.props.children = folderExports.ProjectFolderPicker(folder.props);
+      } else if (folderSlots) {
+        cleanUp(folderSlots);
+        folderSlots = null;
+      }
       for (const node of nodes(tree)) if (node.props.ref) node.props.ref.current = domNode;
       for (const effect of effects.splice(0)) effect();
     }
   }
   flush();
   const harness = {
-    get tree() { return tree; }, requests, actions,
+    get tree() { return tree; }, requests, actions, flush,
     get lateStateUpdates() { return lateStateUpdates; },
     find(predicate) { return nodes(tree).find(predicate); },
     trigger() { return harness.find((node) => node.props.id === "new-task-project-trigger"); },
@@ -146,7 +190,8 @@ function pickerHarness({ selectedCwd = null, localRoots = [], sessions = [], fet
     },
     unmount() {
       unmounted = true;
-      for (const slot of slots) slot?.cleanup?.();
+      cleanUp(folderSlots);
+      cleanUp(parentSlots);
     },
   };
   return harness;
@@ -212,6 +257,87 @@ test("real projects display a label and clear control, and selection calls back 
   assert.equal(harness.trigger().props["aria-expanded"], false);
   harness.click(harness.find((node) => node.props.className === "new-task-project-clear"));
   assert.deepEqual(harness.actions.slice(2), [["clear"], ["focus"]]);
+  harness.unmount();
+});
+
+const trustDialog = (harness) => harness.find((node) => node.type === "ProjectTrustDialog");
+const selectionRequests = (harness) => harness.requests.filter(({ url }) => !["/api/sessions", "/api/cwd/default"].includes(url));
+
+function pickFolder(harness, cwd) {
+  harness.open();
+  harness.click(harness.find((node) => node.type === "button" && text(node) === "New project"));
+  harness.find((node) => node.type === "DirectoryPicker").props.onSelect(cwd);
+  harness.flush();
+  assert.equal(trustDialog(harness).props.cwd, cwd);
+  assert.deepEqual(selectionRequests(harness), []);
+  assert.deepEqual(harness.actions, []);
+}
+
+test("New project posts only the chosen folder on confirmation and selects it only after success", async () => {
+  const cwd = "D:/Projects/Research";
+  const pending = deferred();
+  const harness = pickerHarness({ fetchProject: () => pending.promise });
+  await harness.settle();
+  pickFolder(harness, cwd);
+  trustDialog(harness).props.onConfirm();
+  trustDialog(harness).props.onConfirm();
+  harness.flush();
+  assert.equal(trustDialog(harness).props.busy, true);
+  assert.deepEqual(selectionRequests(harness).map(({ url, options }) => [url, options.method, JSON.parse(options.body)]), [
+    ["/api/projects/select", "POST", { cwd }],
+  ]);
+  assert.deepEqual(harness.actions, []);
+  pending.resolve(response({ cwd }));
+  await harness.settle();
+  assert.equal(trustDialog(harness), undefined);
+  assert.deepEqual(harness.actions, [["remember", cwd], ["select", cwd], ["focus"], ["confirmed", cwd]]);
+  harness.unmount();
+});
+
+test("cancel leaves the current project unchanged without posting or remembering the folder", async () => {
+  const harness = pickerHarness({ selectedCwd: "D:/Projects/Current" });
+  await harness.settle();
+  pickFolder(harness, "D:/Projects/Other");
+  trustDialog(harness).props.onCancel();
+  harness.flush();
+  assert.equal(trustDialog(harness), undefined);
+  assert.equal(text(harness.trigger()), "Current");
+  assert.deepEqual(selectionRequests(harness), []);
+  assert.deepEqual(harness.actions, []);
+  harness.unmount();
+});
+
+test("a failed selection keeps the confirmation open and the current project unchanged", async () => {
+  const harness = pickerHarness({
+    selectedCwd: "D:/Projects/Current",
+    fetchProject: async () => response({ error: { message: "Folder path changed" } }, false, 409),
+  });
+  await harness.settle();
+  pickFolder(harness, "D:/Projects/Other");
+  trustDialog(harness).props.onConfirm();
+  await harness.settle();
+  assert.equal(trustDialog(harness).props.busy, false);
+  assert.equal(trustDialog(harness).props.error, "Folder path changed");
+  assert.equal(text(harness.trigger()), "Current");
+  assert.deepEqual(harness.actions, []);
+  harness.unmount();
+});
+
+test("changing drafts discards a late selection response", async () => {
+  const cwd = "D:/Projects/Research";
+  const pending = deferred();
+  const harness = pickerHarness({ fetchProject: () => pending.promise });
+  await harness.settle();
+  pickFolder(harness, cwd);
+  trustDialog(harness).props.onConfirm();
+  const { signal } = selectionRequests(harness)[0].options;
+  harness.update({ resetKey: "next" });
+  assert.equal(signal.aborted, true);
+  pending.resolve(response({ cwd }));
+  await harness.settle();
+  assert.equal(trustDialog(harness), undefined);
+  assert.deepEqual(harness.actions, []);
+  assert.equal(harness.lateStateUpdates, 0);
   harness.unmount();
 });
 

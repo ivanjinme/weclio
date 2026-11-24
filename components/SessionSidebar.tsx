@@ -27,6 +27,7 @@ import {
 } from "@/lib/project-folders";
 import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { ProjectFolderPicker } from "./ProjectFolderPicker";
 import { apiUrl } from "@/lib/api-base";
 import { apiFetch } from "@/lib/api-fetch";
 import { createEventStream } from "@/lib/event-stream";
@@ -542,9 +543,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [removingProject, setRemovingProject] = useState<string | null>(null);
   const sessionSearchRef = useRef<HTMLInputElement>(null);
   const [customPathOpen, setCustomPathOpen] = useState(false);
-  const [customPathValue, setCustomPathValue] = useState("");
-  const [customPathError, setCustomPathError] = useState<string | null>(null);
-  const [customPathValidating, setCustomPathValidating] = useState(false);
+  const addProjectRef = useRef<HTMLButtonElement>(null);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
@@ -751,38 +750,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (!loading) onInitialLoadDone?.();
   }, [loading, onInitialLoadDone]);
 
-  const commitCustomPath = useCallback(async (candidate?: string) => {
-    const path = (candidate ?? customPathValue).trim();
-    if (!path || customPathValidating) return;
-
-    setCustomPathValidating(true);
-    setCustomPathError(null);
-    try {
-      const res = await apiFetch(apiUrl("/cwd/validate"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: path }),
-      });
-      const data = await res.json().catch(() => ({})) as { cwd?: string; error?: string };
-      if (!res.ok || data.error) {
-        setCustomPathError(data.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      const validatedPath = data.cwd ?? path;
-      setProjectFolders(rememberProjectFolder(validatedPath));
-      setSelectedCwd(validatedPath);
-      setCustomPathOpen(false);
-      setCustomPathValue("");
-    } catch (e) {
-      setCustomPathError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCustomPathValidating(false);
-    }
-  }, [customPathValue, customPathValidating]);
-
   const handleCustomPathClick = useCallback(() => {
     setCustomPathOpen(true);
-    setCustomPathError(null);
   }, []);
 
   const handleSelectSessionFromList = useCallback((s: SessionInfo) => {
@@ -1131,14 +1100,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         />
       )}
       {customPathOpen && (
-        <DirectoryPicker
-          busy={customPathValidating}
-          error={customPathError}
+        <ProjectFolderPicker
           onCancel={() => {
             setCustomPathOpen(false);
-            setCustomPathError(null);
+            requestAnimationFrame(() => addProjectRef.current?.focus());
           }}
-          onSelect={(path) => void commitCustomPath(path)}
+          onSelect={(cwd) => {
+            setProjectFolders(rememberProjectFolder(cwd));
+            setCustomPathOpen(false);
+            setSelectedCwd(cwd);
+          }}
         />
       )}
       {/* Header */}
@@ -1288,7 +1259,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               </svg>
               <span>Projects</span>
             </button>
-            <button type="button" onClick={handleCustomPathClick} className="projects-add" aria-label="New project">+</button>
+            <button ref={addProjectRef} type="button" onClick={handleCustomPathClick} className="projects-add" aria-label="New project">+</button>
           </div>
         )}
         {projectsOpen && visibleProjectGroups.map((group) => renderProjectGroup(group))}

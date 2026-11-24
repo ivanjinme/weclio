@@ -74,6 +74,7 @@ import {
   listPins,
   readProjectTrust,
   rebindProject,
+  selectProject,
   setPinned,
   validateWorkspace,
 } from "../workspace-service";
@@ -632,6 +633,12 @@ export async function startAgentServiceHost(options: AgentServiceHostOptions): P
 
     if (method === "GET" && url.pathname === "/v1/workspaces/browse") {
       sendJson(res, 200, await browseWorkspace(url.searchParams.get("path")), requestId);
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/v1/projects/select") {
+      const { cwd } = await readObjectBody(req);
+      sendJson(res, 200, selectProject(cwd), requestId);
       return;
     }
 

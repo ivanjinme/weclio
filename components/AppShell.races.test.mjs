@@ -6,9 +6,10 @@ import ts from "typescript";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url);
-const [filePaths, artifactTabs] = await Promise.all([
-  jiti.import("../lib/file-paths.ts"), jiti.import("../lib/artifact-tabs.ts"),
+const [filePaths, artifactTabs, projectFolders] = await Promise.all([
+  jiti.import("../lib/file-paths.ts"), jiti.import("../lib/artifact-tabs.ts"), jiti.import("../lib/project-folders.ts"),
 ]);
+const { PROJECT_FOLDER_CONFIRMED_EVENT } = projectFolders;
 const compiled = Object.fromEntries(await Promise.all(["AppShell", "FileExplorer"].map(async (name) => {
   const source = await readFile(new URL(`./${name}.tsx`, import.meta.url), "utf8");
   return [name, ts.transpileModule(source, { compilerOptions: {
@@ -75,13 +76,16 @@ function mount(name, { exportsName = name, props = {}, mocks = {}, apiFetch, XML
     "@/hooks/useI18n": { useI18n: () => ({ locale: "en", t: (key) => key }) },
     ...mocks,
   };
+  const window = Object.assign(new EventTarget(), {
+    innerWidth: 1200, localStorage: { getItem() { return null; }, setItem() {} }, requestAnimationFrame() {}, cancelAnimationFrame() {},
+  });
   const exports = {};
   const expose = name === "AppShell" ? "\nexports.ConfiguredAppShell = ConfiguredAppShell;" : "";
   runInNewContext(compiled[name] + expose, {
     exports, require: (id) => modules[id] ?? (id.startsWith("./") ? { [id.slice(2)]: id.slice(2) } : {}),
     AbortController, DOMException, FormData, XMLHttpRequest, URLSearchParams, console,
     MutationObserver: class { observe() {} disconnect() {} },
-    window: { innerWidth: 1200, localStorage: { getItem() { return null; }, setItem() {} }, requestAnimationFrame() {}, cancelAnimationFrame() {} },
+    window,
     document: { documentElement: { style: { setProperty() {} } }, head: {} },
   });
   function flush() {
@@ -96,7 +100,7 @@ function mount(name, { exportsName = name, props = {}, mocks = {}, apiFetch, XML
   }
   flush();
   return {
-    flush,
+    flush, window,
     find: (test) => nodes(tree).find(test),
     update(values) { Object.assign(props, values); dirty = true; flush(); },
     async settle() { await new Promise((resolve) => setImmediate(resolve)); flush(); },
@@ -116,6 +120,7 @@ function shell(apiFetch) {
     "@/hooks/useCodexUsage": { useCodexUsage() {} },
     "@/lib/window-controls-overlay": { bindWindowControlsOverlay() {} },
     "@/lib/artifact-tabs": artifactTabs,
+    "@/lib/project-folders": projectFolders,
   } });
   return {
     ...app, urls,
@@ -215,6 +220,58 @@ for (const callback of ["onSessionCreated", "onSessionForked"]) {
     assert.equal(app.urls.length, before);
   });
 }
+
+test("confirming the current project folder refreshes trust without resetting the chat or dialog", async () => {
+  const refresh = deferred();
+  const requests = [];
+  const app = shell(async (url, { signal }) => {
+    assert.equal(url, "/project-trust?cwd=%2Fa");
+    requests.push(signal);
+    return requests.length === 1 ? Response.json({ requiresTrust: true, trusted: false }) : refresh.promise;
+  });
+  app.select("a", "/a");
+  await app.settle();
+  const chat = app.chat();
+  chat.props.onOpenProjectTrust();
+  app.flush();
+  const dialog = () => app.find((node) => node.type === "ProjectTrustDialog");
+  const confirmFolder = (cwd) => app.window.dispatchEvent(new CustomEvent(PROJECT_FOLDER_CONFIRMED_EVENT, { detail: cwd }));
+
+  confirmFolder("/b");
+  await app.settle();
+  assert.equal(requests.length, 1);
+  confirmFolder("/a");
+  await app.settle();
+  assert.equal(requests.length, 2);
+  assert.ok(dialog());
+  assert.equal(typeof app.chat().props.onOpenProjectTrust, "function", "the current status remains visible while refreshing");
+
+  refresh.resolve(Response.json({ requiresTrust: true, trusted: true }));
+  await app.settle();
+  assert.equal(app.chat().props.onOpenProjectTrust, undefined);
+  assert.ok(dialog());
+  assert.equal(app.chat().key, chat.key);
+  for (const prop of ["session", "newSessionCwd", "modelsRefreshKey", "sessionReload"]) {
+    assert.equal(app.chat().props[prop], chat.props[prop], prop);
+  }
+});
+
+test("a folder confirmation supersedes the current project's pending trust GET", async () => {
+  const stale = deferred();
+  const requests = [];
+  const app = shell(async (_url, { signal }) => {
+    requests.push(signal);
+    return requests.length === 1 ? stale.promise : Response.json({ requiresTrust: true, trusted: true });
+  });
+  app.select("a", "/a");
+  app.window.dispatchEvent(new CustomEvent(PROJECT_FOLDER_CONFIRMED_EVENT, { detail: "/a" }));
+  await app.settle();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].aborted, true);
+  stale.resolve(Response.json({ requiresTrust: true, trusted: false }));
+  await app.settle();
+  assert.equal(app.chat().props.onOpenProjectTrust, undefined);
+});
 
 test("AppShell ignores a trust POST that completes after switching projects", async () => {
   const trustA = deferred();

@@ -67,6 +67,7 @@ GET    /v1/workspaces/default            Service 默认工作区
 POST   /v1/workspaces/default            创建并授权默认工作区
 POST   /v1/workspaces/validate           { cwd } → 规范化并授权
 GET    /v1/workspaces/browse?path=       目录浏览
+POST   /v1/projects/select              { cwd } → 200 { cwd }，确认后信任并授权已有目录
 GET    /v1/projects/trust?cwd=           信任状态
 POST   /v1/projects/trust                { cwd } → 信任并释放受限实例
 POST   /v1/projects/rebind               { oldRoot, newRoot } → 迁移会话路径
@@ -113,6 +114,13 @@ PATCH  /v1/settings/pins                 { type, id, pinned }
 `tree` 保留相同的节点结构、ID、压缩链和书签，但每个 `entry` 仅返回 `id`、`type`，
 消息另带角色与标签文本预览。该选项不改变 `context`。旧版 Service 会忽略该参数，
 使用预览的客户端仍须支持完整树节点。
+
+`GET /v1/workspaces/browse` 返回当前目录的真实路径 `path`，不保存信任或授权文件访问。
+仅在用户确认后，客户端将该路径作为 `cwd` 发送到 `POST /v1/projects/select`；取消时不发起请求。
+Service 不创建目录，并拒绝已不再指向原真实路径的 `cwd`（例如被替换成符号链接时返回 `409`）。
+Service 通过 Pi 保存信任（即使目录为空），保存成功后才授权文件访问。此接口不会重载现有会话；
+要在现有会话中应用新信任，请手动执行 `/reload`，或开启新会话。
+`POST /v1/workspaces/validate` 的授权行为保持不变，不修改信任。
 
 ### 4.1 客户端实际使用的端点
 

@@ -300,7 +300,7 @@ export const enLocale: LocalePlugin = {
     "trust.trusting": "Trusting...",
     "trust.cancel": "Cancel",
     "trust.dialogTitle": "Trust this project?",
-    "trust.dialogBody": "Project resources can run local code. Trust only projects whose contents you know.",
+    "trust.dialogBody": "Project resources can run local code. Trust applies to this folder and its subfolders, including future ones, unless they have a more specific trust decision. Only trust folders whose contents you know.",
     "trust.skillsNotLoaded": "Project skills are not loaded because this project is not trusted.",
     "trust.pluginsNotLoaded": "Project plugins are not loaded because this project is not trusted.",
     "trust.projectScopeUnavailable": "Project installs are unavailable while project resources are not loaded.",

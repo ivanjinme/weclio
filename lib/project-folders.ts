@@ -1,6 +1,7 @@
 const STORAGE_KEY = "weclio:project-folders";
 const HIDDEN_STORAGE_KEY = "weclio:hidden-project-folders";
 export const PROJECT_FOLDERS_CHANGED_EVENT = "weclio:project-folders-changed";
+export const PROJECT_FOLDER_CONFIRMED_EVENT = "weclio:project-folder-confirmed";
 
 export interface ProjectFolderEntry {
   root: string;

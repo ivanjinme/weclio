@@ -77,10 +77,10 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
   const handlePathSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const candidate = pathInput.trim();
-    if (candidate) void navigateTo(candidate);
+    if (candidate && !loading) void navigateTo(candidate);
   };
   const hasUncommittedPath = pathInput.trim() !== currentPath;
-  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
+  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !loading && !busy;
 
   if (!portalTarget) return null;
 
