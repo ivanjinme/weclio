@@ -978,7 +978,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, finishMountedCompaction, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd, onSessionRenamed, refreshReloadedResources, updateCompacting]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[], parts?: ComposerPart[]) => {
+  const sendMessage = useCallback(async (
+    message: string,
+    images?: Pick<AttachedImage, "data" | "mimeType">[],
+    { parts, interpretBash = false }: { parts?: ComposerPart[]; interpretBash?: boolean } = {},
+  ) => {
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return false;
     if (agentRunningRef.current || bashRunningRef.current || compactingRef.current) return false;
@@ -997,7 +1001,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const isSlashCommandPrompt = !parts && !images?.length && trimmedMessage.startsWith("/");
 
-    const isBashCommand = !parts && !images?.length && trimmedMessage.startsWith("!");
+    const isBashCommand = interpretBash && !parts && !images?.length && trimmedMessage.startsWith("!");
     if (isBashCommand) {
       const isExcluded = trimmedMessage.startsWith("!!");
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
@@ -1114,6 +1118,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, ensureNewSession, loadSession, chatInputRef, promoteNewSession, session]);
   executeBashRef.current = executeBash;
 
+  const handleSend = useCallback((message: string, images?: AttachedImage[], parts?: ComposerPart[]) => (
+    sendMessage(message, images, { parts, interpretBash: true })
+  ), [sendMessage]);
+
   const clearQueuedMessages = useCallback(async (restoreToInput: boolean) => {
     const sid = sessionIdRef.current;
     if (!sid) return;
@@ -1196,11 +1204,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     setActiveLeafId(result.targetId);
     await loadContext(sid, result.targetId);
-    await handleSend(message, images?.map((image) => ({
-      ...image,
-      previewUrl: `data:${image.mimeType};base64,${image.data}`,
-    })));
-  }, [handleSend, loadContext]);
+    await sendMessage(message, images);
+  }, [sendMessage, loadContext]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;

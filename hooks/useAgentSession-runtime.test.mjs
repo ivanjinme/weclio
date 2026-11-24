@@ -375,6 +375,27 @@ test("a compaction event reload cannot overwrite a newer prompt on another strea
   assert.deepEqual(render().messages.map(({ content }) => content), ["first prompt", "next prompt"]);
 });
 
+test("edited messages stay prompts after losing their attachments and can be image-only", async (t) => {
+  const { parseAgentCommand } = await createJiti(import.meta.url).import("../lib/agent/protocol/validate.ts");
+  const image = { data: "AA==", mimeType: "image/png" };
+  for (const [message, images] of [["!example", undefined], ["", [image]]]) {
+    const commands = [];
+    const { render } = await mountExistingSession(t, {
+      runEffects: false,
+      apiFetch: async () => Response.json({ context: { messages: [], entryIds: [] } }),
+      async sendAgentCommand(_sid, command) {
+        commands.push(parseAgentCommand(command));
+        return command.type === "navigate_before" ? { targetId: "parent" } : null;
+      },
+    });
+    await render().handleEditFromHere("edited-entry", message, images);
+    assert.deepEqual(commands, [
+      { type: "navigate_before", entryId: "edited-entry" },
+      { type: "prompt", message, ...(images ? { images: [{ type: "image", ...image }] } : {}) },
+    ]);
+  }
+});
+
 test("connected prompt rejects roll back the optimistic bubble, unlike transport failures", async (t) => {
   const jiti = createJiti(import.meta.url);
   const { createAgentClient } = await jiti.import("../lib/agent-client.ts");

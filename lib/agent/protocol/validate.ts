@@ -119,7 +119,7 @@ function parseMessageCommand(record: Record<string, unknown>): { message: string
   const images = optionalImages(record);
   const parts = optionalParts(record);
   return {
-    message: requiredString(record, "message"),
+    message: images?.length && record.message === "" ? "" : requiredString(record, "message"),
     ...(images ? { images } : {}),
     ...(parts ? { parts } : {}),
   };
