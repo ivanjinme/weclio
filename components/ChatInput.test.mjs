@@ -74,9 +74,9 @@ test("permission UI defaults to Full access independently of the tool preset", (
   }
 });
 
-test("shell footer groups permission separately from context, model, and circular send control", async () => {
+test("shell footer puts attachment before permission, separate from context, model, and circular send control", async () => {
   const html = renderInput({ contextUsage: { percent: 25, contextWindow: 1000, tokens: 250 } });
-  assert.match(html, /class="composer-shell"><div class="composer-shell-editor">[\s\S]*?<\/div><div class="composer-shell-footer"><div class="composer-shell-permission"><button[^>]*aria-label="Permission mode: Full access"[\s\S]*?<\/button><\/div><div class="composer-shell-actions"><button[^>]*class="composer-context-ring"[\s\S]*?<\/button><button[^>]*class="composer-control-chip composer-model-chip"[\s\S]*?<\/button><button[^>]*class="composer-send-button"[^>]*disabled=""[^>]*aria-label="Send"/);
+  assert.match(html, /class="composer-shell"><div class="composer-shell-editor">[\s\S]*?<\/div><div class="composer-shell-footer"><div class="composer-shell-permission"><input[^>]*hidden=""[^>]*><button[^>]*aria-label="Attach images"[\s\S]*?<\/button><button[^>]*aria-label="Permission mode: Full access"[\s\S]*?<\/button><\/div><div class="composer-shell-actions"><button[^>]*class="composer-context-ring"[\s\S]*?<\/button><button[^>]*class="composer-control-chip composer-model-chip"[\s\S]*?<\/button><button[^>]*class="composer-send-button"[^>]*disabled=""[^>]*aria-label="Send"/);
   const css = await readFile(new URL("./composer/composer.css", import.meta.url), "utf8");
   const sendRule = css.match(/\.composer-send-button\s*\{([^}]+)\}/)?.[1];
   assert.match(sendRule, /width:\s*32px/);
@@ -84,10 +84,19 @@ test("shell footer groups permission separately from context, model, and circula
   assert.match(sendRule, /border-radius:\s*50%/);
 });
 
+test("attachment control shows a localized plus button and an image-only multi-file input, and is disabled while streaming", () => {
+  const html = renderInput();
+  assert.equal(enLocale.messages["chat.attachImages"], "Attach images");
+  assert.equal(zhCNLocale.messages["chat.attachImages"], "添加图片");
+  assert.match(html, /<input[^>]*type="file"[^>]*accept="image\/\*"[^>]*multiple=""[^>]*hidden=""/);
+  assert.match(html, /<button[^>]*title="Attach images"[^>]*aria-label="Attach images"[^>]*><svg[^>]*><path d="M10 4v12M4 10h12"><\/path><\/svg><\/button>/);
+  assert.match(renderInput({ isStreaming: true }), /<button[^>]*disabled=""[^>]*aria-label="Attach images"/);
+});
+
 test("restricted mode sits next to the permission picker only when project trust is available", () => {
   assert.doesNotMatch(renderInput(), /aria-label="Restricted mode"/);
   const html = renderInput({ onOpenProjectTrust() {} });
-  assert.match(html, /class="composer-shell-permission"><button[^>]*aria-label="Permission mode: Full access"[^>]*>[\s\S]*?<\/button><button[^>]*aria-label="Restricted mode"[^>]*>[\s\S]*?<span>Restricted mode<\/span><\/button><\/div>/);
+  assert.match(html, /class="composer-shell-permission"><input[^>]*hidden=""[^>]*><button[^>]*aria-label="Attach images"[\s\S]*?<\/button><button[^>]*aria-label="Permission mode: Full access"[^>]*>[\s\S]*?<\/button><button[^>]*aria-label="Restricted mode"[^>]*>[\s\S]*?<span>Restricted mode<\/span><\/button><\/div>/);
 });
 
 test("composer uses the redesigned placeholder with English and Chinese messages", () => {

@@ -264,6 +264,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [atServerResult, setAtServerResult] = useState<{ cwd: string; query: string; matches: FileIndexEntry[] } | null>(null);
 
   const editorRef = useRef<ComposerEditorHandle>(null);
+  const imagePickerRef = useRef<HTMLInputElement>(null);
   const historyMenuRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
@@ -1445,6 +1446,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
           <div className="composer-shell-footer">
             <div className="composer-shell-permission">
+              <input
+                ref={imagePickerRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? []);
+                  event.currentTarget.value = "";
+                  void processImageFiles(files);
+                }}
+              />
+              <button
+                type="button"
+                className="composer-control-chip"
+                style={{ flexShrink: 0, paddingInline: 6 }}
+                disabled={isStreaming}
+                title={t("chat.attachImages")}
+                aria-label={t("chat.attachImages")}
+                onClick={() => imagePickerRef.current?.click()}
+              >
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10 4v12M4 10h12" />
+                </svg>
+              </button>
               <PermissionPicker />
               {onOpenProjectTrust && <ProjectTrustButton onClick={onOpenProjectTrust} />}
             </div>

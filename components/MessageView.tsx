@@ -203,14 +203,13 @@ function UserMessageView({ message, sessionId, cwd, onOpenFile, entryId, onEditF
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
-  const [editImages, setEditImages] = useState<ImageContent[]>([]);
   const [editError, setEditError] = useState<string | null>(null);
   const [submittingEdit, setSubmittingEdit] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   const content = getUserMessageDisplayText(getMessageText(message.content));
-  const imageBlocks = editing ? editImages : getMessageImages(message.content);
-  const canSubmitEdit = !!editDraft.trim() || editImages.some(editableImage);
+  const imageBlocks = getMessageImages(message.content);
+  const canSubmitEdit = !!editDraft.trim() || imageBlocks.some(editableImage);
 
   const time = formatTime(message.timestamp);
   const canEdit = !!entryId && !!onEditFromHere;
@@ -231,7 +230,6 @@ function UserMessageView({ message, sessionId, cwd, onOpenFile, entryId, onEditF
 
   const beginEdit = () => {
     setEditDraft(content);
-    setEditImages(imageBlocks);
     setEditError(null);
     setEditing(true);
   };
@@ -247,7 +245,7 @@ function UserMessageView({ message, sessionId, cwd, onOpenFile, entryId, onEditF
     setSubmittingEdit(true);
     setEditError(null);
     try {
-      const images = editImages
+      const images = imageBlocks
         .map(editableImage)
         .filter((image): image is EditableImage => image !== null);
       await onEditFromHere(entryId, editDraft, images.length ? images : undefined);
@@ -289,31 +287,13 @@ function UserMessageView({ message, sessionId, cwd, onOpenFile, entryId, onEditF
           {imageBlocks.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: editing || content ? 8 : 0 }}>
               {imageBlocks.map((img, i) => (
-                <div key={i} style={{ position: "relative", minWidth: editing ? 24 : undefined, minHeight: editing ? 24 : undefined }}>
+                <div key={i}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={imageSource(img)}
                     alt=""
                     style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
                   />
-                  {editing && (
-                    <button
-                      type="button"
-                      aria-label={t("i18n.remove")}
-                      title={t("i18n.remove")}
-                      disabled={submittingEdit}
-                      onClick={() => setEditImages((images) => images.filter((_, index) => index !== i))}
-                      style={{
-                        position: "absolute", top: 2, right: 2,
-                        width: 22, height: 22, borderRadius: "50%",
-                        background: "var(--bg-panel)", border: "1px solid var(--border)",
-                        color: "var(--text)", padding: 0, fontSize: 16, lineHeight: 1,
-                        cursor: submittingEdit ? "default" : "pointer",
-                      }}
-                    >
-                      ×
-                    </button>
-                  )}
                 </div>
               ))}
             </div>

@@ -222,6 +222,7 @@ export const enLocale: LocalePlugin = {
     "chat.steer": "Steer",
     "chat.followUp": "Follow-up",
     "chat.send": "Send",
+    "chat.attachImages": "Attach images",
     "chat.moreControls": "More controls",
     "chat.collapseControls": "Collapse controls",
     "chat.shell": "Shell",
